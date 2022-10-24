@@ -14,6 +14,11 @@ const tile_sheet_height = @floatToInt(comptime_int, @ceil(@intToFloat(f32, tile_
 const tile_dimension = 8; // 8x8 tiles
 const tile_byte_size = 16;
 
+const TileCoordinate = struct {
+    x: usize,
+    y: usize,
+};
+
 pub fn init(memory_bank: *MemoryBank) Ppu {
     return .{
         .tile_sheet = sf.sfTexture_create(
@@ -28,6 +33,29 @@ pub fn tick(self: *Ppu) void {
         self.regenerateTileSheet();
 
     }
+}
+
+pub fn getTileCoordinate(self: Ppu, tile_index: i16) TileCoordinate {
+    // Check which tile addressing mode we're using
+    if (self.memory_bank.lcd_control.getFlag(.BG_Window_TileDataArea)) {
+        return getTileCoordinateFromTileIndex(128 + tile_index);
+    } else {
+        return getTileCoordinateFromTileIndex(tile_index);
+    }
+}
+
+pub fn getTileCoordinateForSprite(tile_index: u8) TileCoordinate {
+    return getTileCoordinateForSprite(tile_index);
+}
+
+fn getTileCoordinateFromTileIndex(index: usize) TileCoordinate {
+    const tile_sheet_x = index % tile_sheet_width;
+    const tile_sheet_y = @divFloor(index, tile_sheet_width);
+
+    return .{
+        .x = tile_sheet_x,
+        .y = tile_sheet_y
+    };
 }
 
 pub fn draw(self: *Ppu, window: ?*sf.sfRenderWindow) void {
@@ -69,9 +97,6 @@ fn regenerateTileSheet(self: *Ppu) void {
     var address: usize = 0;
     const end_address = 0x97FF - 0x8000;
 
-    var tile_index: usize = 0;
-    var tile_sheet_y: usize = 0;
-
     const bytes_per_RGBA32_pixel = 4;
     const RGBA32_data_count = tile_dimension * tile_dimension * bytes_per_RGBA32_pixel;
 
@@ -79,9 +104,7 @@ fn regenerateTileSheet(self: *Ppu) void {
 
 
     while (address < end_address) : (address += tile_byte_size) {
-        const tile_sheet_x = tile_index % tile_sheet_width;
-        tile_sheet_y += if (tile_index > 0 and tile_index % tile_sheet_width == 0) 1 else 0;
-        tile_index += 1;
+        const tile_sheet_coordinate = getTileCoordinateFromTileIndex(@divFloor(address, 16));
 
         const tile_data = self.memory_bank.video_ram[address..][0..tile_byte_size];
 
@@ -99,11 +122,13 @@ fn regenerateTileSheet(self: *Ppu) void {
             &tile_RGBA32_data[0],
             @intCast(c_uint, 8),
             @intCast(c_uint, 8),
-            @intCast(c_uint, tile_sheet_x * tile_dimension),
-            @intCast(c_uint, tile_sheet_y * tile_dimension));
+            @intCast(c_uint, tile_sheet_coordinate.x * tile_dimension),
+            @intCast(c_uint, tile_sheet_coordinate.y * tile_dimension));
     }
 
     var image = sf.sfTexture_copyToImage(self.tile_sheet);
     defer sf.sfImage_destroy(image);
-    std.debug.print("SAVE RESULT {}", .{sf.sfImage_saveToFile(image, "hello.png")});
+    
+    const tilemap_path = "./tilemap_dump.png";
+    std.debug.print("Tilemap Dump ({s}) result: {}\n", .{tilemap_path, sf.sfImage_saveToFile(image, "./tilemap_dump.png")});
 }
