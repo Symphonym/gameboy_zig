@@ -10,6 +10,7 @@ pub fn main() !void {
     var memory_bank = MemoryBank {};
     var cpu = Cpu.init(&memory_bank);
     var ppu = Ppu.init(&memory_bank);
+    defer ppu.deinit();
 
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
@@ -18,7 +19,7 @@ pub fn main() !void {
     //_ = windowStyle;
 
     const style: sf.sfUint32 = sf.sfDefaultStyle;
-    var window = sf.sfRenderWindow_create(videoMode, @ptrCast([*c]const u8, "SFML Works"), style, null);
+    var window = sf.sfRenderWindow_create(videoMode, @ptrCast([*c]const u8, "SFML Works"), style, null) orelse unreachable;
     sf.sfRenderWindow_setFramerateLimit(window, 60);
     defer sf.sfRenderWindow_destroy(window);
 
@@ -40,11 +41,13 @@ pub fn main() !void {
             if (event.type == sf.sfEvtClosed)
             {
                 sf.sfRenderWindow_close(window);
+                return;
             }
         }
         if (!memory_bank.lcd_control.getFlag(.LCD_PPU_enable)) {
-            sf.sfRenderWindow_clear(window, sf.sfColor_fromRGB(0, 255, 0));
+            //sf.sfRenderWindow_clear(window, sf.sfColor_fromRGB(0, 255, 0));
         }
+        sf.sfRenderWindow_clear(window, sf.sfColor_fromRGB(0, 255, 0));
         ppu.draw(window);
         sf.sfRenderWindow_display(window);
     }
