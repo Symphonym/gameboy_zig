@@ -71,7 +71,7 @@ pub fn draw(self: *TileMap, window: *sf.sfRenderWindow, tile_sheet: *sf.sfTextur
             if (x < 0) {
                 break :blk tilemap_dimension + @rem(x, tilemap_dimension) - 1;
             } else if (x >= tilemap_dimension) {
-                break :blk @rem(x, tilemap_dimension) - tilemap_dimension;
+                break :blk tilemap_dimension - @rem(x, tilemap_dimension) - 1;
             }
             break :blk @rem(x, tilemap_dimension);
         };
@@ -83,7 +83,7 @@ pub fn draw(self: *TileMap, window: *sf.sfRenderWindow, tile_sheet: *sf.sfTextur
                 if (y < 0) {
                     break :blk tilemap_dimension + @rem(y, tilemap_dimension) - 1;
                 } else if (y >= tilemap_dimension) {
-                    break :blk @rem(y, tilemap_dimension) - tilemap_dimension;
+                    break :blk tilemap_dimension - @rem(y, tilemap_dimension) - 1;
                 }
 
                 break :blk @rem(y, tilemap_dimension);
