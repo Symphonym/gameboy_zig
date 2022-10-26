@@ -2,16 +2,18 @@ const std = @import("std");
 const testing = std.testing;
 
 const MemoryBank = @import("MemoryBank.zig");
+const Interrupt = @import("Interrupt.zig");
 const OpCode = @import("op_code.zig");
 const settings = @import("settings.zig");
 
 const Cpu = @This();
 
-const CpuErrors = error {
+pub const CpuErrors = error {
     UnhandledOpCode,
     OperandNotHandled,
     MissingOperand,
-} || MemoryBank.MemoryBankErrors;
+    InvalidInterrupt,
+} || MemoryBank.MemoryBankErrors || OpCode.OpCodeErrors;
 
 pub const Flags = enum(u8) {
     Z = 0x80, // 7th bit
@@ -41,10 +43,7 @@ const InstructionResult = struct {
     cycles_taken: ?u8 = null // Cycles taken by the instruction, uses OpCode specified value if null
 };
 
-const CYCLES_PER_FRAME = 4194304 / 60;
-
 memory_bank: *MemoryBank,
-cpu_cycles_this_frame: u32 = 0,
 registers: RegisterBank = .{},
 
 pub fn init(memory_bank: *MemoryBank) Cpu {
@@ -65,48 +64,44 @@ fn getFlag(self: *Cpu, flag: Flags) bool {
     return self.registers.AF.Lo & @enumToInt(flag) != 0;
 }
 
-pub fn tick(self: *Cpu) anyerror!void {
+pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
 
-
-    while (self.cpu_cycles_this_frame < CYCLES_PER_FRAME) {
-        if (comptime settings.debug) {
-            std.debug.print("PC at 0x{X}\n", .{self.registers.PC});
-        }
-        const op_code = try self.memory_bank.read(u8, self.registers.PC);
-
- 
-
-        // TODO: d8 and d16 values etc won't be read correctly for CB op codes due to the extra offset
-        const op_code_info = blk: {
-            if (op_code == 0xCB) {
-                const cb_op_code = try self.memory_bank.read(u8, self.registers.PC + 1);
-                break :blk try OpCode.getCBOpCodeInfo(cb_op_code);
-            } else {
-                break :blk try OpCode.getOpCodeInfo(op_code);
-            }
-        };
-
-        errdefer {
-            std.debug.print("Cpu tick failed at\n", .{});
-            std.debug.print("PC: 0x{X}\n", .{self.registers.PC});
-            std.debug.print("Op code: 0x{X} ({s} {s},{s})\n", .{
-                op_code,
-                @tagName(op_code_info.inst),
-                if (op_code_info.op_1) |val| @tagName(val) else "null",
-                if (op_code_info.op_2) |val| @tagName(val) else "null"
-            });
-        }
-
-        const instruction_result = try self.processInstruction(op_code_info);
-
-        self.cpu_cycles_this_frame += instruction_result.cycles_taken orelse op_code_info.cycles_taken;
-        self.registers.PC = instruction_result.new_pc orelse self.registers.PC + op_code_info.length;
-        
-        if (comptime settings.debug and instruction_result.new_pc != null) {
-            std.debug.print("Jumped to new PC 0x{X}\n", .{self.registers.PC});
-        }
+    if (comptime settings.debug) {
+        std.debug.print("PC at 0x{X}\n", .{self.registers.PC});
     }
-    self.cpu_cycles_this_frame -= CYCLES_PER_FRAME;
+    const op_code = try self.memory_bank.read(u8, self.registers.PC);
+
+    // TODO: d8 and d16 values etc won't be read correctly for CB op codes due to the extra offset
+    const op_code_info = blk: {
+        if (op_code == 0xCB) {
+            const cb_op_code = try self.memory_bank.read(u8, self.registers.PC + 1);
+            break :blk try OpCode.getCBOpCodeInfo(cb_op_code);
+        } else {
+            break :blk try OpCode.getOpCodeInfo(op_code);
+        }
+    };
+
+    errdefer {
+        std.debug.print("Cpu tick failed at\n", .{});
+        std.debug.print("PC: 0x{X}\n", .{self.registers.PC});
+        std.debug.print("Op code: 0x{X} ({s} {s},{s})\n", .{
+            op_code,
+            @tagName(op_code_info.inst),
+            if (op_code_info.op_1) |val| @tagName(val) else "null",
+            if (op_code_info.op_2) |val| @tagName(val) else "null"
+        });
+    }
+
+    const instruction_result = try self.processInstruction(op_code_info);
+
+    const cycles_taken = instruction_result.cycles_taken orelse op_code_info.cycles_taken;
+    self.registers.PC = instruction_result.new_pc orelse self.registers.PC + op_code_info.length;
+    
+    if (comptime settings.debug and instruction_result.new_pc != null) {
+        std.debug.print("Jumped to new PC 0x{X}\n", .{self.registers.PC});
+    }
+
+    return cycles_taken;
 }
 
 fn adjustFlagFromInstruction(self: *Cpu, flag: Flags, instruction_flag_state: OpCode.OperationFlagStates) void {
@@ -115,6 +110,41 @@ fn adjustFlagFromInstruction(self: *Cpu, flag: Flags, instruction_flag_state: Op
         .Reset => false,
         else => self.getFlag(flag)
     });
+}
+
+pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
+    var bit_offset: u3 = 0;
+    var cycles_consumed: u32 = 0;
+
+    while (bit_offset < 5) : (bit_offset += 1) {
+        const interrupt = @intToEnum(Interrupt.Types, @intCast(u8, 0x1) << bit_offset);
+
+        if (self.memory_bank.interrupt.isInterruptEnabled(interrupt)) {
+            
+            try self.pushStack(self.registers.PC);
+            self.registers.PC = switch(interrupt) {
+                .VBlank => 0x40,
+                .LCDStat => 0x48,
+                .Timer => 0x50,
+                .Serial => 0x58,
+                .Joypad => 0x60,
+                else => return CpuErrors.InvalidInterrupt
+            };
+
+            if (comptime settings.debug) {
+                std.debug.print("Processed interrupt {s}", .{@tagName(interrupt)});
+            }
+
+            // Clear the relevant interrupt flags
+            self.memory_bank.interrupt.interrupt_master_enable = false;
+            self.memory_bank.interrupt.clearInterruptRequest(interrupt);
+
+            cycles_consumed = 20;
+            break;
+        }
+    }
+
+    return 0;
 }
 
 fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
@@ -137,6 +167,8 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .INC16 => try self.inc16(op_code_info),
         .DEC8 => try self.dec8(op_code_info),
         .CP => try self.cp(op_code_info),
+        .EI => try self.ei(op_code_info),
+        .DI => try self.di(op_code_info),
         else => return CpuErrors.UnhandledOpCode,
     };
     
@@ -473,6 +505,18 @@ fn cp(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     self.setFlag(.Z, result == 0);
     self.setFlag(.H, (self.registers.AF.Hi & 0xF) < (operand_value & 0xF));
     self.setFlag(.C, self.registers.AF.Hi < operand_value);
+    return .{};
+}
+
+fn ei(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    _ = op_code_info;
+    self.memory_bank.interrupt.interrupt_master_enable = true;
+    return .{};
+}
+
+fn di(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    _ = op_code_info;
+    self.memory_bank.interrupt.interrupt_master_enable = false;
     return .{};
 }
 

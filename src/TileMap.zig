@@ -12,9 +12,6 @@ vertex_array: *sf.sfVertexArray,
 offset_x: u32 = 250,
 offset_y: u32 = 0,
 
-// last_visible_tile_index_topleft: tile_util.Coord,
-// last_visible_tile_index_botright: tile_util.Coord,
-
 pub fn init() TileMap {
     const vertex_array = sf.sfVertexArray_create() orelse unreachable;
     sf.sfVertexArray_resize(vertex_array, tile_count * 4);

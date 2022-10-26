@@ -81,6 +81,9 @@ pub const Instructions = enum {
 
     BIT,
     RL,
+
+    EI,
+    DI,
 };
 
 pub const OperationFlagStates = enum {
@@ -158,9 +161,11 @@ pub fn getOpCodeInfo(op_code: u8) OpCodeErrors!OpCodeInfo {
         0x20 => OpCodeInfo.init(.JR, .Cond_NZ, .r8, 2, 12, .{}),
         0x1A => OpCodeInfo.init(.LD8, .A, .DE_Addr, 1, 8, .{}),
         0x1E => OpCodeInfo.init(.LD8, .E, .d8, 2, 8, .{}),
+        0x1D => OpCodeInfo.init(.DEC8, .E, null, 1, 4, .{.Z = .Dependent, .N = .Set, .H = .Dependent }),
         0x21 => OpCodeInfo.init(.LD16, .HL, .d16, 3, 12, .{}),
         0x22 => OpCodeInfo.init(.LD8i, .HL_Addr, .A, 1, 8, .{}),
         0x23 => OpCodeInfo.init(.INC16, .HL, null, 1, 8, .{}),
+        0x24 => OpCodeInfo.init(.INC8, .H, null, 1, 4, .{ .Z = .Dependent, .N = .Reset, .H = .Dependent}),
         0x28 => OpCodeInfo.init(.JR, .Cond_Z, .r8, 2, 12, .{}),
         0x2E => OpCodeInfo.init(.LD8, .L, .d8, 2, 8, .{}),
         0x31 => OpCodeInfo.init(.LD16, .SP, .d16, 3, 12, .{}),
@@ -173,6 +178,7 @@ pub fn getOpCodeInfo(op_code: u8) OpCodeErrors!OpCodeInfo {
         0x67 => OpCodeInfo.init(.LD8, .H, .A, 1, 4, .{}),
         0x77 => OpCodeInfo.init(.LD8, .HL_Addr, .A, 1, 8, .{}),
         0x7B => OpCodeInfo.init(.LD8, .A, .E, 1, 4, .{}),
+        0x7C => OpCodeInfo.init(.LD8, .A, .H, 1, 4, .{}),
         0xAF => OpCodeInfo.init(.XOR, .A, null, 1, 4, .{ .Z = .Dependent, .N = .Reset, .H = .Reset, .C = .Reset}),
         0xC1 => OpCodeInfo.init(.POP, .BC, null, 1, 12, .{}),
         0xC5 => OpCodeInfo.init(.PUSH, .BC, null, 1, 16, .{}),
@@ -181,7 +187,9 @@ pub fn getOpCodeInfo(op_code: u8) OpCodeErrors!OpCodeInfo {
         0xE0 => OpCodeInfo.init(.LD8io_to, .d8, .A, 2, 12, .{}),
         0xE2 => OpCodeInfo.init(.LD8io_to, .C, .A, 1, 8, .{}),
         0xEA => OpCodeInfo.init(.LD8, .d16_Addr, .A, 3, 16, .{}),
-        0xF0 => OpCodeInfo.init(.LD8io_to, .A, .d8, 2, 12, .{}),
+        0xF0 => OpCodeInfo.init(.LD8io_from, .A, .d8, 2, 12, .{}),
+        0xF3 => OpCodeInfo.init(.DI, null, null, 1, 4, .{}),
+        0xFB => OpCodeInfo.init(.EI, null, null, 1, 4, .{}),
         0xFE => OpCodeInfo.init(.CP, .d8, null, 2, 8, .{ .Z = .Dependent, .N = .Set, .H = .Dependent, .C = .Dependent}),
         else => blk: {
             std.debug.print("Unhandled opcode 0x{X}\n", .{op_code});

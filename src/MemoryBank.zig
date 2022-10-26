@@ -4,6 +4,8 @@ const testing = std.testing;
 
 const LCDControl = @import("LCDControl.zig");
 const LCDStatus = @import("LCDStatus.zig");
+const Timer = @import("Timer.zig");
+const Interrupt = @import("Interrupt.zig");
 
 const MemoryBank = @This();
 
@@ -16,6 +18,14 @@ io_registers: [128]u8 = .{0} ** 128, // 128 bytes
 
 lcd_control: LCDControl = .{},
 lcd_status: LCDStatus = .{},
+timer: Timer = .{},
+interrupt: Interrupt = .{},
+scroll_x: u8 = 0,
+scroll_y: u8 = 0,
+ly_compare: u8 = 0,
+window_x: u8 = 0,
+window_y: u8 = 0,
+scanline_index: u8 = 0,
 
 vram_changed: bool = false,
 
@@ -31,8 +41,9 @@ pub const MemoryBankErrors = error
     NotWriteableMemory,
 };
 
-pub fn tick(self: *MemoryBank) void {
+pub fn tick(self: *MemoryBank, cycles_taken: u32) void {
     self.vram_changed = false;
+    self.timer.tick(cycles_taken, self);
 }
 
 fn isVRAMAccessAllowed(self: MemoryBank) bool {
@@ -44,14 +55,26 @@ fn isVRAMAccessAllowed(self: MemoryBank) bool {
 
 fn readIO(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T {
     return switch (address) {
+        0xFF04 => @intCast(T, self.timer.divider),
+        0xFF05 => @intCast(T, self.timer.counter),
+        0xFF06 => @intCast(T, self.timer.modulo),
+        0xFF07 => @intCast(T, self.timer.control),
+        0xFF0F => @intCast(T, self.interrupt.request_register),
         0xFF40 => @intCast(T, self.lcd_control.register),
         0xFF41 => @intCast(T, self.lcd_status.register),
+        0xFF42 => @intCast(T, self.scroll_y),
+        0xFF43 => @intCast(T, self.scroll_x),
+        0xFF44 => @intCast(T, self.scanline_index),
+        0xFF45 => @intCast(T, self.ly_compare),
+        0xFF4A => @intCast(T, self.window_y),
+        0xFF4B => @intCast(T, self.window_x),
         else => std.mem.bytesToValue(T, self.io_registers[(address - 0xFF00)..][0..@sizeOf(T)])
     };
 }
 
 pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T {
     return switch(address) {
+        // TODO: if 0xFF50 is set then we unmap bootrom and read from cartridge
         0x00...0xFF => std.mem.bytesToValue(T, self.bootstrap_rom[address..][0..@sizeOf(T)]),
         0x104...0x133 => std.mem.bytesToValue(T, nintendo_logo[(address - 0x104)..][0..@sizeOf(T)]),
         0xC000...0xDFFF => std.mem.bytesToValue(T, self.work_ram[(address - 0xC000)..][0..@sizeOf(T)]),
@@ -64,6 +87,7 @@ pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!
         },
         0xFF00...0xFF7F => try self.readIO(T, address),
         0xFF80...0xFFFE => std.mem.bytesToValue(T, self.high_ram[(address - 0xFF80)..][0..@sizeOf(T)]),
+        0xFFFF => @intCast(T, self.interrupt.enabled_register),
         else => blk: {
             std.debug.print("Invalid address read at 0x{X}\n", .{address});
             break :blk MemoryBankErrors.InvalidAddress;
@@ -74,8 +98,25 @@ pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!
 fn writeIO(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!void {
     const bytes_to_write = @sizeOf(@TypeOf(value));
     switch (address) {
+        0xFF04 => self.timer.divider = 0,
+        0xFF05 => self.timer.counter = @intCast(u8, value),
+        0xFF06 => self.timer.modulo = @intCast(u8, value),
+        0xFF07 => self.timer.control = @intCast(u8, value),
+        0xFF0F => self.interrupt.request_register = @intCast(u8, value),
         0xFF40 => self.lcd_control.register = @intCast(u8, value),
         0xFF41 => self.lcd_status.register = @intCast(u8, value),
+        0xFF42 => self.scroll_y = @intCast(u8, value),
+        0xFF43 => self.scroll_x = @intCast(u8, value),
+        0xFF44 => self.scanline_index = @intCast(u8, value),
+        0xFF46 => {
+            var i: usize = 0;
+            const base_address: u16 = @intCast(u16, std.math.shl(u8, @intCast(u8, value), 8));
+            while (i < 0xA0) : (i += 1) {
+                try self.write(@intCast(u16, 0xFE00 + i), try self.read(u8, base_address + @intCast(u16, i)));
+            }
+        },
+        0xFF4A => self.window_y = @intCast(u8, value),
+        0xFF4B => self.window_x = @intCast(u8, value),
         else => std.mem.copy(u8, self.io_registers[(address - 0xFF00)..][0..bytes_to_write], &std.mem.toBytes(value)),
     }
 }
@@ -96,6 +137,7 @@ pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!v
         },
         0xFF00...0xFF7F => try self.writeIO(address, value),
         0xFF80...0xFFFE => std.mem.copy(u8, self.high_ram[(address - 0xFF80)..][0..bytes_to_write], &std.mem.toBytes(value)),
+        0xFFFF => self.interrupt.enabled_register = @intCast(u8, value),
         else => {
             std.debug.print("Invalid address write at 0x{X}\n", .{address});
             return MemoryBankErrors.InvalidAddress;

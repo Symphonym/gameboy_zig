@@ -5,13 +5,30 @@ const MemoryBank = @import("MemoryBank.zig");
 const tile_util = @import("tile_util.zig");
 const TileCoordinate = tile_util.Coord;
 const TileMap = @import("TileMap.zig");
+const PixelFIFO = @import("PixelFIFO.zig");
 
 const Ppu = @This();
+
+const PixelFetcherSteps = enum {
+    GetTile,
+    GetTileDataLow,
+    GetTileDataHigh,
+    Sleep,
+    Push
+};
 
 tile_sheet: *sf.sfTexture,
 first_tilemap: TileMap,
 second_tilemap: TileMap,
 memory_bank: *MemoryBank,
+
+background_fifo: PixelFIFO = .{},
+sprite_fifo: PixelFIFO = .{},
+
+current_scanline: u8 = 0,
+fetcher_step: PixelFetcherSteps = .GetTile,
+processed_cycles: u32 = 0,
+should_draw_scanline: bool = false,
 
 pub fn init(memory_bank: *MemoryBank) Ppu {
     return .{
@@ -29,9 +46,78 @@ pub fn deinit(self: *Ppu) void {
     self.second_tilemap.deinit();
 }
 
-pub fn tick(self: *Ppu) void {
-    if (self.memory_bank.vram_changed) {
-        self.regenerateTileSheet();
+pub fn tick(self: *Ppu, cycles_taken: u32) !void {
+    if (!self.memory_bank.lcd_control.getFlag(.LCD_PPU_enable)) {
+        return;
+    }
+
+    self.processed_cycles += cycles_taken;
+    if (self.processed_cycles >= 456) {
+
+        const scanline_index = try self.memory_bank.read(u8, 0xFF44);
+        try self.memory_bank.write(0xFF44, scanline_index + 1);
+
+        if (scanline_index == 144) {
+            self.memory_bank.interrupt.requestInterrupt(.VBlank);
+        }
+        else if (scanline_index > 153) {
+            try self.memory_bank.write(0xFF44, 0);
+        }
+        else if (scanline_index < 144) {
+            self.should_draw_scanline = true;
+        }
+
+        self.processed_cycles = 0;
+    }
+}
+
+fn updateLCDStatus(self: *Ppu) void {
+
+    // When LCD is disabled we set Mode to 1 and reset scanline
+    if (!self.memory_bank.lcd_control.getFlag(.LCD_PPU_enable)) {
+        self.processed_cycles = 0;
+        self.memory_bank.write(0xFF44, 0);
+        self.memory_bank.lcd_status.setMode(.VBlank);
+    }
+
+    const scanline_index = try self.memory_bank.read(u8, 0xFF44);
+
+    const current_mode = self.memory_bank.lcd_status.getMode();
+
+    var should_interrupt = false;
+    // We're in VBlank area, so set mode to 1
+    if (scanline_index >= 144) {
+        self.memory_bank.lcd_status.setMode(.VBlank);
+        should_interrupt = self.memory_bank.lcd_status.getFlag(.VBlank_InterruptSource);
+    } else {
+
+        // SearchingOAM
+        if (self.processed_cycles >= 456 - 80) {
+            self.memory_bank.lcd_status.setMode(.SearchingOAM);
+            should_interrupt = self.memory_bank.lcd_status.getFlag(.OAM_InterruptSource);
+        } 
+        // TransferringDataToLCD
+        else if (self.processed_cycles >= 172) {
+            self.memory_bank.lcd_status.setMode(.TransferringDataToLCD);
+        }
+        // HBlank
+        else {
+            self.memory_bank.lcd_status.setMode(.HBlank);
+            should_interrupt = self.memory_bank.lcd_status.getFlag(.HBlank_InterruptSource);
+        }
+    }
+
+    if (should_interrupt and (current_mode != self.memory_bank.lcd_status.getMode())) {
+        self.memory_bank.interrupt.requestInterrupt(.LCDStat);
+    }
+
+    const coincidence_flag = self.memory_bank.scroll_y == self.memory_bank.ly_compare;
+    self.memory_bank.lcd_status.setFlag(.LYC, self.memory_bank.scroll_y == self.memory_bank.ly_compare);
+
+    if (coincidence_flag) {
+        if (self.memory_bank.lcd_status.getFlag(.LY_InterruptSource)) {
+            self.memory_bank.interrupt.requestInterrupt(.LCDStat);
+        }
     }
 }
 
@@ -49,7 +135,9 @@ pub fn getTileCoordinateForSprite(tile_index: u8) TileCoordinate {
 }
 
 pub fn draw(self: *Ppu, window: *sf.sfRenderWindow) void {
-    self.first_tilemap.draw(window, self.tile_sheet);
+    _ = window;
+    self.should_draw_scanline = false;
+    //self.first_tilemap.draw(window, self.tile_sheet);
 }
 
 // Parses a raw line of the tile in memory and returns data in RGBA32 format
@@ -76,7 +164,7 @@ fn parseTileLineToRGBA32(tile_line: *[2]u8) [32]u8 {
     return RGBA32_data;
 }
 
-fn regenerateTileSheet(self: *Ppu) void {
+pub fn regenerateTileSheet(self: *Ppu) void {
     var address: usize = 0;
     const end_address = 0x97FF - 0x8000;
 
@@ -113,5 +201,6 @@ fn regenerateTileSheet(self: *Ppu) void {
     defer sf.sfImage_destroy(image);
 
     const tilemap_path = "./tilemap_dump.png";
+    //_= sf.sfImage_saveToFile(image, "./tilemap_dump.png");
     std.debug.print("Tilemap Dump ({s}) result: {}\n", .{tilemap_path, sf.sfImage_saveToFile(image, "./tilemap_dump.png")});
 }
