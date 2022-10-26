@@ -45,7 +45,7 @@ pub fn tick(self: *Gameboy) GameboyErrors!void {
     while (self.cpu_cycles_this_frame < CYCLES_PER_FRAME) {
         const cycles_taken = try self.cpu.?.tickInstructions();
         try self.ppu.?.tick(cycles_taken);
-        //std.debug.print("A{X} SCAn:{X} \n", .{self.cpu.?.registers.AF.Hi, try self.memory_bank.read(u8, 0xFF44)});
+        //
 
         if (self.memory_bank.vram_changed) {
             vram_changed = true;
@@ -57,6 +57,7 @@ pub fn tick(self: *Gameboy) GameboyErrors!void {
 
         self.cpu_cycles_this_frame += cycles_taken + interrupt_cycles_taken;
     }
+    std.debug.print("SCroll Y:{} \n", .{self.memory_bank.scroll_y});
     
 
 

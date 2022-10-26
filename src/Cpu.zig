@@ -163,6 +163,8 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .CALL => try self.call(op_code_info),
         .PUSH => try self.push(op_code_info),
         .POP => try self.pop(op_code_info),
+        .ADD => try self.add(op_code_info),
+        .SUB => try self.sub(op_code_info),
         .INC8 => try self.inc8(op_code_info),
         .INC16 => try self.inc16(op_code_info),
         .DEC8 => try self.dec8(op_code_info),
@@ -467,7 +469,7 @@ fn pop(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
 
 fn inc8(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const inital_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
-    const result = inital_value + 1;
+    const result = inital_value +% 1;
     try self.writeOperand(
         op_code_info.op_1 orelse return CpuErrors.MissingOperand,
         result);
@@ -488,7 +490,7 @@ fn inc16(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResul
 }
 
 fn dec8(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
-    const result = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand) - 1;
+    const result = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand) -% 1;
     try self.writeOperand(
         op_code_info.op_1 orelse return CpuErrors.MissingOperand,
         result);
@@ -505,6 +507,31 @@ fn cp(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     self.setFlag(.Z, result == 0);
     self.setFlag(.H, (self.registers.AF.Hi & 0xF) < (operand_value & 0xF));
     self.setFlag(.C, self.registers.AF.Hi < operand_value);
+    return .{};
+}
+
+fn add(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const operand_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    var result: u8 = undefined;
+    const overflow: bool = @addWithOverflow(u8, self.registers.AF.Hi, operand_value, &result);
+
+    self.setFlag(.Z, result == 0);
+    self.setFlag(.H, (self.registers.AF.Hi & 0xF) + (operand_value & 0xF) > 0xF);
+    self.setFlag(.C, overflow);
+
+    try self.writeOperand(.A, result);
+    return .{};
+}
+
+fn sub(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const operand_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result = self.registers.AF.Hi -% operand_value;
+
+    self.setFlag(.Z, result == 0);
+    self.setFlag(.H, (self.registers.AF.Hi & 0xF) < (operand_value & 0xF));
+    self.setFlag(.C, self.registers.AF.Hi < operand_value);
+
+    try self.writeOperand(.A, result);
     return .{};
 }
 
