@@ -19,7 +19,7 @@ const PixelFetcherSteps = enum {
 
 tile_sheet: *sf.sfTexture,
 screen: *sf.sfTexture,
-screen_pixels: [160 * 144 * 4]u8 = .{0} ** (160 * 144 * 4),
+screen_pixels: *sf.sfImage,
 
 first_tilemap: TileMap,
 second_tilemap: TileMap,
@@ -34,15 +34,17 @@ processed_cycles: u32 = 0,
 should_draw_scanline: bool = false,
 
 pub fn init(memory_bank: *MemoryBank) Ppu {
+    var screen_pixels = sf.sfImage_create(
+        @intCast(c_int, 160),
+        @intCast(c_int, 143)) orelse unreachable;
     return .{
         .first_tilemap = TileMap.init(),
         .second_tilemap = TileMap.init(),
         .tile_sheet = sf.sfTexture_create(
             @intCast(c_int, tile_util.tile_sheet_width * tile_util.tile_pixel_dimension),
             @intCast(c_int, tile_util.tile_sheet_height * tile_util.tile_pixel_dimension)) orelse unreachable,
-        .screen = sf.sfTexture_create(
-            @intCast(c_int, 160),
-            @intCast(c_int, 144)) orelse unreachable,
+        .screen = sf.sfTexture_createFromImage(screen_pixels, 0) orelse unreachable,
+        .screen_pixels = screen_pixels,
         .memory_bank = memory_bank
     };
 }
@@ -150,24 +152,15 @@ pub fn getTileCoordinateForSprite(tile_index: u8) TileCoordinate {
 
 pub fn draw(self: Ppu, window: *sf.sfRenderWindow) void {
     var sprite = sf.sfSprite_create();
-    var texture = sf.sfTexture_create(
-        @intCast(c_int, 161),
-        @intCast(c_int, 144)) orelse unreachable;
+    defer sf.sfSprite_destroy(sprite);
 
-        sf.sfTexture_updateFromPixels(
-            texture,
-            &self.screen_pixels[0],
-            @intCast(c_uint, 16),
-            @intCast(c_uint, 144),
-            @intCast(c_uint, 0),
-            @intCast(c_uint, 0));
-    sf.sfSprite_setTexture(sprite, texture, 1);
+    sf.sfSprite_setTexture(sprite, self.screen, 1);
+    sf.sfTexture_updateFromImage(self.screen, self.screen_pixels, 0, 0);
     sf.sfRenderWindow_drawSprite(window, sprite, 0);
     //self.first_tilemap.draw(window, self.tile_sheet);
 }
 
 fn drawTiles(self: *Ppu) !void {
-
     var drawing_window = false;
 
     if (self.memory_bank.lcd_control.getFlag(.Window_Enable)) {
@@ -181,10 +174,9 @@ fn drawTiles(self: *Ppu) !void {
         if (drawing_window) {
             break :blk if (self.memory_bank.lcd_control.getFlag(.Window_TileMapArea)) 0x9C00 else 0x9800;
         } else {
-            break :blk if (self.memory_bank.lcd_control.getFlag(.BG_TileMapArea)) 0x9c00 else 0x9800;
+            break :blk if (self.memory_bank.lcd_control.getFlag(.BG_TileMapArea)) 0x9C00 else 0x9800;
         }
     };
-
     // pos_y is used to calculate which of 32 vertical tiles the
     // current scanline is drawing
     const pos_y: u8 = blk: {
@@ -198,7 +190,6 @@ fn drawTiles(self: *Ppu) !void {
     // which of the 8 vertical pixels of the current
     // tile is the scanline on?
     const tile_row: u16 = @intCast(u16, @divFloor(pos_y, 8)) * 32;
-
     var pixel: u8 = 0;
     while (pixel < 160) : (pixel += 1) {
 
@@ -212,23 +203,23 @@ fn drawTiles(self: *Ppu) !void {
 
         // which of the 32 horizontal tiles does this xPos fall within?
         const tile_col: u16 = @divFloor(pos_x, 8);
+        const tile_index_byte = try self.memory_bank.read(u8, tiledata_address + tile_row + tile_col);
 
-        const tile_index = try self.memory_bank.read(u8, tiledata_address + tile_row + tile_col);
-        const tile_address = self.getTileAddress(tile_index);
+        const tile_address: u16 = self.getTileAddress(tile_index_byte);
 
-        // find the correct vertical line we're on of the
-        // tile to get the tile data
-        //  //from in memory
-        //  BYTE line = yPos % 8 ;
-        //  line *= 2; // each vertical line takes up two bytes of memory
-        //  BYTE data1 = ReadMemory(tileLocation + line) ;
-        //  BYTE data2 = ReadMemory(tileLocation + line + 1) ;
-        const tile_line: u8 = pos_y % 8;
+        const tile_vertical_line: u8 = pos_y % 8;
         var tile_line_data: [2]u8 = [2]u8 {
-            try self.memory_bank.read(u8, tile_address + tile_line),
-            try self.memory_bank.read(u8, tile_address + tile_line + 1)
+            try self.memory_bank.read(u8, tile_address + tile_vertical_line * 2),
+            try self.memory_bank.read(u8, tile_address + tile_vertical_line * 2 + 1)
         };
-        //const rgba32_line_data = parseTileLineToRGBA32(&tile_line_data);
+
+        //const color_bit: u8 = pos_x % 8;
+        const b: u8 = 7 - (pos_x & 7);
+
+        const left_bit = (tile_line_data[0] >> @intCast(u3, b)) & 0x1;
+        const right_bit = (tile_line_data[1] >> @intCast(u3, b)) & 0x1;
+
+        const color_ID = left_bit + right_bit << 1;
 
         const scanline = self.memory_bank.scanline_index;
         // safety check to make sure what im about
@@ -237,61 +228,14 @@ fn drawTiles(self: *Ppu) !void {
             continue;
         }
 
-        const bytes_per_RGBA32_pixel: u32 = 4;
-        //std.debug.print("OFFSET: {} scan {} pix {} len {}\n", .{(bytes_per_RGBA32_pixel * scanline * 160 + pixel), scanline, pixel, self.screen_pixels.len});
-        std.mem.copy(u8,
-                self.screen_pixels[(bytes_per_RGBA32_pixel * scanline * 160 + pixel)..][0..32],
-                &parseTileLineToRGBA32(&tile_line_data));
-        // sf.sfTexture_updateFromPixels(
-        //     self.screen,
-        //     &rgba32_line_data[0],
-        //     @intCast(c_uint, 8),
-        //     @intCast(c_uint, 1),
-        //     @intCast(c_uint, pixel),
-        //     @intCast(c_uint, scanline));
-     //m_ScreenData[pixel][finaly][0] = red ;
-     //m_ScreenData[pixel][finaly][1] = green ;
-     //m_ScreenData[pixel][finaly][2] = blue ;
+        const color = sf.sfColor {
+            .r = color_ID * 30,
+            .g = color_ID * 30,
+            .b = color_ID * 30,
+            .a = 255,
+        };
 
-    //  // pixel 0 in the tile is it 7 of data 1 and data2.
-    //  // Pixel 1 is bit 6 etc..
-    //  int colourBit = xPos % 8 ;
-    //  colourBit -= 7 ;
-    //  colourBit *= -1 ;
-
-    //  // combine data 2 and data 1 to get the colour id for this pixel
-    //  // in the tile
-    //  int colourNum = BitGetVal(data2,colourBit) ;
-    //  colourNum <<= 1;
-    //  colourNum |= BitGetVal(data1,colourBit) ;
-
-    //  // now we have the colour id get the actual
-    //  // colour from palette 0xFF47
-    //  COLOUR col = GetColour(colourNum, 0xFF47) ;
-    //  int red = 0;
-    //  int green = 0;
-    //  int blue = 0;
-
-    //  // setup the RGB values
-    //  switch(col)
-    //  {
-    //    case WHITE: red = 255; green = 255 ; blue = 255; break ;
-    //    case LIGHT_GRAY:red = 0xCC; green = 0xCC ; blue = 0xCC; break ;
-    //    case DARK_GRAY: red = 0x77; green = 0x77 ; blue = 0x77; break ;
-    //  }
-
-    //  int finaly = ReadMemory(0xFF44) ;
-
-    //  // safety check to make sure what im about
-    //  // to set is int the 160x144 bounds
-    //  if ((finaly<0)||(finaly>143)||(pixel<0)||(pixel>159))
-    //  {
-    //    continue ;
-    //  }
-
-    //  m_ScreenData[pixel][finaly][0] = red ;
-    //  m_ScreenData[pixel][finaly][1] = green ;
-    //  m_ScreenData[pixel][finaly][2] = blue ;
+        sf.sfImage_setPixel(self.screen_pixels, @intCast(c_uint, pixel), @intCast(c_uint, scanline), color);
     }
 }
 
@@ -299,11 +243,11 @@ fn drawSprites(self: *Ppu) void {
     _ = self;
 }
 
-fn getTileAddress(self: Ppu, tile_index: u8) u16 {
+fn getTileAddress(self: Ppu, tile_index_byte: u8) u16 {
     if (self.memory_bank.lcd_control.getFlag(.BG_Window_TileDataArea)) {
-        return @intCast(u16, 0x8800) + @intCast(u16, @intCast(i16, 128) + @intCast(i8, tile_index)) * tile_util.tile_byte_size;
+        return @intCast(u16, 0x8000) + @intCast(u16, tile_index_byte) * tile_util.tile_byte_size;
     } else {
-        return @intCast(u16, 0x8000) + tile_index * tile_util.tile_byte_size;
+        return @intCast(u16, 0x8800) + @bitCast(u16, @intCast(i16, 128) + @bitCast(i8, tile_index_byte)) * tile_util.tile_byte_size;
     }
 }
 
