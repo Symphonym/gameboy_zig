@@ -6,6 +6,7 @@ const LCDControl = @import("LCDControl.zig");
 const LCDStatus = @import("LCDStatus.zig");
 const Timer = @import("Timer.zig");
 const Interrupt = @import("Interrupt.zig");
+const ColorPalette = @import("ColorPalette.zig");
 
 const MemoryBank = @This();
 
@@ -26,6 +27,8 @@ ly_compare: u8 = 0,
 window_x: u8 = 0,
 window_y: u8 = 0,
 scanline_index: u8 = 0,
+
+background_palette: ColorPalette = .{},
 
 vram_changed: bool = false,
 
@@ -109,8 +112,9 @@ fn writeIO(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!voi
         0xFF43 => self.scroll_x = @intCast(u8, value),
         0xFF44 => self.scanline_index = @intCast(u8, value),
         0xFF46 => {
+            // TODO: This is not entirely accurate (cycle and read/write) access-wise
             var i: usize = 0;
-            const base_address: u16 = @intCast(u16, std.math.shl(u8, @intCast(u8, value), 8));
+            const base_address: u16 = @intCast(u16, value) << 8;
             while (i < 0xA0) : (i += 1) {
                 try self.write(@intCast(u16, 0xFE00 + i), try self.read(u8, base_address + @intCast(u16, i)));
             }

@@ -120,7 +120,7 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
         const interrupt = @intToEnum(Interrupt.Types, @intCast(u8, 0x1) << bit_offset);
 
         if (self.memory_bank.interrupt.isInterruptEnabled(interrupt)) {
-            
+            std.debug.print("HO", .{});
             try self.pushStack(self.registers.PC);
             self.registers.PC = switch(interrupt) {
                 .VBlank => 0x40,

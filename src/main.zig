@@ -19,7 +19,7 @@ pub fn main() !void {
 
     const style: sf.sfUint32 = sf.sfDefaultStyle;
     var window = sf.sfRenderWindow_create(videoMode, @ptrCast([*c]const u8, "SFML Works"), style, null) orelse unreachable;
-    sf.sfRenderWindow_setFramerateLimit(window, 60);
+    sf.sfRenderWindow_setFramerateLimit(window, 5);
     defer sf.sfRenderWindow_destroy(window);
 
     const clock = sf.sfClock_create();
@@ -27,7 +27,8 @@ pub fn main() !void {
     while (sf.sfRenderWindow_isOpen(window) == 1)
     {
         const delta_time = sf.sfTime_asSeconds(sf.sfClock_restart(clock));
-        _ = delta_time;
+        //_ = delta_time;
+        std.debug.print("FPS: {d}\n", .{1 / delta_time});
         var event: sf.sfEvent = undefined;
         while (sf.sfRenderWindow_pollEvent(window, &event) == 1)
         {
@@ -53,4 +54,5 @@ test
     _ = @import("Cpu.zig");
     _ = @import("LCDStatus.zig");
     _ = @import("PixelFIFO.zig");
+    _ = @import("ColorPalette.zig");
 }

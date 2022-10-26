@@ -57,7 +57,7 @@ pub fn tick(self: *Gameboy) GameboyErrors!void {
 
         self.cpu_cycles_this_frame += cycles_taken + interrupt_cycles_taken;
     }
-    std.debug.print("SCroll Y:{} \n", .{self.memory_bank.scroll_y});
+   // std.debug.print("SCroll Y:{} \n", .{self.memory_bank.scroll_y});
     
 
 
@@ -72,6 +72,6 @@ pub fn tick(self: *Gameboy) GameboyErrors!void {
     self.cpu_cycles_this_frame -= CYCLES_PER_FRAME;
 }
 
-pub fn draw(self: *Gameboy, window: *sf.sfRenderWindow) void {
+pub fn draw(self: Gameboy, window: *sf.sfRenderWindow) void {
     self.ppu.?.draw(window);
 }

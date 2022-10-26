@@ -10,9 +10,9 @@ pub const Types = enum(u8) {
     Joypad = 0x10
 };
 
-request_register: u8 = 0,
-enabled_register: u8 = 0,
-interrupt_master_enable: bool = true,
+request_register: u8 = 0xE0,
+enabled_register: u8 = 0x00,
+interrupt_master_enable: bool = false,
 
 pub fn requestInterrupt(self: *Interrupt, interrupt: Types) void {
     self.request_register |= @enumToInt(interrupt);
