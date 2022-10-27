@@ -12,7 +12,7 @@
             "program": "${workspaceFolder}/zig-out/bin/Gameboy",
             "symbolSearchPath": "${workspaceFolder}/zig-out/bin/", 
             "args": [],
-            "cwd": "${workspaceFolder}/zig-out/bin/",
+            "cwd": "${workspaceFolder}",
         }
     ]
 }

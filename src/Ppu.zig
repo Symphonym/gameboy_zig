@@ -29,8 +29,8 @@ should_draw_scanline: bool = false,
 
 pub fn init(memory_bank: *MemoryBank) Ppu {
     var screen_pixels = sf.sfImage_create(
-        @intCast(c_int, constants.LCDWidth),
-        @intCast(c_int, constants.LCDHeight)) orelse unreachable;
+        @intCast(c_int, constants.lcd_width),
+        @intCast(c_int, constants.lcd_height)) orelse unreachable;
     return .{
         .tile_sheet = sf.sfTexture_create(
             @intCast(c_int, tile_util.tile_sheet_width * tile_util.tile_pixel_dimension),
@@ -207,6 +207,8 @@ fn drawTiles(self: *Ppu) !void {
         const tile_address: u16 = self.getTileAddress(tile_index_byte);
 
         const tile_vertical_line: u8 = pos_y % 8;
+
+        // 2 bytes, corresponding to one 8px line of a tile
         var tile_line_data: [2]u8 = [2]u8 {
             try self.memory_bank.read(u8, tile_address + tile_vertical_line * 2),
             try self.memory_bank.read(u8, tile_address + tile_vertical_line * 2 + 1)
@@ -222,7 +224,7 @@ fn drawTiles(self: *Ppu) !void {
         const scanline = self.memory_bank.scanline_index;
         // safety check to make sure what im about
         // to set is int the 160x144 bounds
-        if ((scanline < 0) or (scanline > constants.LCDHeight - 1) or (pixel < 0) or (pixel > constants.LCDWidth - 1)) {
+        if ((scanline < 0) or (scanline > constants.lcd_height - 1) or (pixel < 0) or (pixel > constants.lcd_width - 1)) {
             continue;
         }
 

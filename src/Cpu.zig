@@ -35,7 +35,7 @@ pub const RegisterBank = struct {
     DE: Register = .{},
     HL: Register = .{},
     SP: u16 = 0,
-    PC: u16 = 0
+    PC: u16 = 0x000
 };
 
 const InstructionResult = struct {
@@ -170,6 +170,7 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
 
 fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const instruction_result = switch (op_code_info.inst) {
+        .NOP => InstructionResult {},
         .LD8 => try self.ld8(op_code_info),
         .LD8d => try self.ld8d(op_code_info),
         .LD8i => try self.ld8i(op_code_info),
@@ -177,22 +178,28 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .LD8io_from => try self.ld8io_from(op_code_info),
         .LD16 => try self.ld16(op_code_info),
         .XOR => try self.xor(op_code_info),
+        .OR => try self.doOr(op_code_info),
+        .AND => try self.doAnd(op_code_info),
         .BIT => try self.bit(op_code_info),
         .RL => try self.rl(op_code_info),
         .JR => try self.jr(op_code_info),
+        .JP => try self.jp(op_code_info),
         .RET => try self.ret(op_code_info),
+        .RETI => try self.reti(op_code_info),
         .CALL => try self.call(op_code_info),
         .PUSH => try self.push(op_code_info),
         .POP => try self.pop(op_code_info),
+        .ADC => try self.adc(op_code_info),
         .ADD => try self.add(op_code_info),
         .SUB => try self.sub(op_code_info),
         .INC8 => try self.inc8(op_code_info),
         .INC16 => try self.inc16(op_code_info),
         .DEC8 => try self.dec8(op_code_info),
+        .DEC16 => try self.dec16(op_code_info),
         .CP => try self.cp(op_code_info),
         .EI => try self.ei(op_code_info),
         .DI => try self.di(op_code_info),
-        else => return CpuErrors.UnhandledOpCode,
+        // else => return CpuErrors.UnhandledOpCode,
     };
     
     self.adjustFlagFromInstruction(.Z, op_code_info.flags.Z);
@@ -290,7 +297,7 @@ fn writeOperand(self: *Cpu, operand: OpCode.Operands, value: anytype) CpuErrors!
     if (type_size == 1) {
         switch (operand) {
             .A => self.registers.AF.Hi = @bitCast(u8, value),
-            .F => self.registers.AF.Lo = @bitCast(u8, value),
+            .F => self.registers.AF.Lo = @bitCast(u8, value & 0xF0),
             .B => self.registers.BC.Hi = @bitCast(u8, value),
             .C => self.registers.BC.Lo = @bitCast(u8, value),
             .D => self.registers.DE.Hi = @bitCast(u8, value),
@@ -310,7 +317,7 @@ fn writeOperand(self: *Cpu, operand: OpCode.Operands, value: anytype) CpuErrors!
     }
     else if (type_size == 2) {
         switch (operand) {
-            .AF => self.registers.AF.ptr().* = value,
+            .AF => self.registers.AF.ptr().* = value & 0xFFF0,
             .BC => self.registers.BC.ptr().* = value,
             .DE => self.registers.DE.ptr().* = value,
             .HL => self.registers.HL.ptr().* = value,
@@ -390,7 +397,24 @@ fn ld16(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult
 fn xor(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const operand_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
     const result_value = self.registers.AF.Hi ^ operand_value;
-    self.registers.AF.Hi = result_value;
+
+    self.setFlag(.Z, result_value == 0);
+    try self.writeOperand(.A, result_value);
+    return .{};
+}
+
+fn doOr(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const operand_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result_value = self.registers.AF.Hi | operand_value;
+
+    self.setFlag(.Z, result_value == 0);
+    try self.writeOperand(.A, result_value);
+    return .{};
+}
+
+fn doAnd(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const operand_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result_value = self.registers.AF.Hi & operand_value;
 
     self.setFlag(.Z, result_value == 0);
     try self.writeOperand(.A, result_value);
@@ -434,6 +458,25 @@ fn jr(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     };
 }
 
+fn jp(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const has_condition = op_code_info.op_1 != null and op_code_info.op_2 != null;
+    const condition: bool = blk: {
+        if (has_condition) {
+            break :blk try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand) != 0;
+        }
+        break :blk true;
+    };
+    const new_pc: u16 = blk: {
+        const pc_operand = if (has_condition) op_code_info.op_2 else op_code_info.op_1;
+        break :blk try self.readOperand(u16, pc_operand orelse return CpuErrors.MissingOperand);
+    };
+    
+    return .{ 
+        .cycles_taken = if (condition) op_code_info.cycles_taken else 12,
+        .new_pc = if (condition) new_pc else null
+    };
+}
+
 fn ret(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     // Condition is optional so we can handle both RET C/NC/Z/NZ and RET here
     const has_condition = op_code_info.op_1 != null;
@@ -464,13 +507,32 @@ fn ret(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
     };
 }
 
-fn call(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
-    const new_pc: u16 = try self.readOperand(u16, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
-    
-    try self.pushStack(self.getAddrOfNextInstruction(op_code_info));
+fn reti(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const result = self.ret(op_code_info);
+    self.memory_bank.interrupt.interrupt_master_enable = true;
+    return result;
+}
 
+fn call(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const has_condition = op_code_info.op_1 != null and op_code_info.op_2 != null;
+    const condition: bool = blk: {
+        if (has_condition) {
+            break :blk try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand) != 0;
+        }
+        break :blk true;
+    };
+    const new_pc: u16 = blk: {
+        const pc_operand = if (has_condition) op_code_info.op_2 else op_code_info.op_1;
+        break :blk try self.readOperand(u16, pc_operand orelse return CpuErrors.MissingOperand);
+    };
+
+    if (condition) {
+        try self.pushStack(self.getAddrOfNextInstruction(op_code_info));
+    }
+    
     return .{ 
-        .new_pc = new_pc
+        .cycles_taken = if (condition) op_code_info.cycles_taken else 12,
+        .new_pc = if (condition) new_pc else null
     };
 }
 
@@ -507,7 +569,7 @@ fn inc8(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult
 
 fn inc16(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const inital_value = try self.readOperand(u16, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
-    const result = inital_value + 1;
+    const result = inital_value +% 1;
     try self.writeOperand(
         op_code_info.op_1 orelse return CpuErrors.MissingOperand,
         result);
@@ -526,6 +588,14 @@ fn dec8(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult
     return .{};
 }
 
+fn dec16(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const result = try self.readOperand(u16, op_code_info.op_1 orelse return CpuErrors.MissingOperand) -% 1;
+    try self.writeOperand(
+        op_code_info.op_1 orelse return CpuErrors.MissingOperand,
+        result);
+    return .{};
+}
+
 fn cp(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const operand_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
     const result = self.registers.AF.Hi -% operand_value;
@@ -533,6 +603,22 @@ fn cp(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     self.setFlag(.Z, result == 0);
     self.setFlag(.H, (self.registers.AF.Hi & 0xF) < (operand_value & 0xF));
     self.setFlag(.C, self.registers.AF.Hi < operand_value);
+    return .{};
+}
+
+fn adc(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const first_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const second_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand);
+
+    var result: u8 = undefined;
+    var overflow: bool = @addWithOverflow(u8, first_operand, second_operand, &result);
+    overflow = @addWithOverflow(u8, result, @boolToInt(self.getFlag(.C)), &result) or overflow;
+
+    self.setFlag(.Z, result == 0);
+    self.setFlag(.H, (first_operand & 0xF) + (second_operand & 0xF) + @boolToInt(self.getFlag(.C)) > 0xF);
+    self.setFlag(.C, overflow);
+
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
     return .{};
 }
 

@@ -7,6 +7,7 @@ const LCDStatus = @import("LCDStatus.zig");
 const Timer = @import("Timer.zig");
 const Interrupt = @import("Interrupt.zig");
 const ColorPalette = @import("ColorPalette.zig");
+const Cartridge = @import("Cartridge.zig");
 
 const MemoryBank = @This();
 
@@ -15,6 +16,7 @@ bootstrap_rom: [256]u8 = @embedFile("DMG_ROM.bin").*,
 work_ram: [8192]u8 = .{0} ** 8192, // 8 KiB
 video_ram: [8192]u8 = .{0} ** 8192, // 8 KiB
 high_ram: [127]u8 = .{0} ** 127, // 127 bytes
+sprite_oam: [160]u8 = .{0} ** 160, // 160 bytes
 io_registers: [128]u8 = .{0} ** 128, // 128 bytes
 
 lcd_control: LCDControl = .{},
@@ -31,6 +33,9 @@ scanline_index: u8 = 0,
 background_palette: ColorPalette = .{},
 
 vram_changed: bool = false,
+is_bootram_mapped: bool = true,
+
+cartridge: ?*Cartridge = null,
 
 const nintendo_logo = [_]u8 {
     0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
@@ -56,6 +61,10 @@ fn isVRAMAccessAllowed(self: MemoryBank) bool {
     //return self.lcd_control.getFlag(.LCD_PPU_enable);
 }
 
+pub fn insertCartridge(self: *MemoryBank, cartridge: *Cartridge) void {
+    self.cartridge = cartridge;
+}
+
 fn readIO(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T {
     return switch (address) {
         0xFF04 => @intCast(T, self.timer.divider),
@@ -76,11 +85,25 @@ fn readIO(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T 
     };
 }
 
+fn readOAM(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T {
+    if (self.lcd_status.getMode() == .HBlank or self.lcd_status.getMode() == .VBlank) {
+        return @intCast(T, 0xFF);
+    }
+    
+    return std.mem.bytesToValue(T, self.io_registers[(address - 0xFE00)..][0..@sizeOf(T)]);
+}
+
 pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T {
     return switch(address) {
-        // TODO: if 0xFF50 is set then we unmap bootrom and read from cartridge
-        0x00...0xFF => std.mem.bytesToValue(T, self.bootstrap_rom[address..][0..@sizeOf(T)]),
-        0x104...0x133 => std.mem.bytesToValue(T, nintendo_logo[(address - 0x104)..][0..@sizeOf(T)]),
+        0x00...0xFF => blk: {
+            if (self.is_bootram_mapped) {
+                break :blk std.mem.bytesToValue(T, self.bootstrap_rom[address..][0..@sizeOf(T)]);
+            } else if (self.cartridge) | *cartridge| {
+                break :blk cartridge.*.readROM(T, address);
+            }
+        },
+        0x100...0x7FFF => if (self.cartridge) | *cartridge| cartridge.*.readROM(T, address) else MemoryBankErrors.InvalidAddress,
+        //0x104...0x133 => std.mem.bytesToValue(T, nintendo_logo[(address - 0x104)..][0..@sizeOf(T)]),
         0xC000...0xDFFF => std.mem.bytesToValue(T, self.work_ram[(address - 0xC000)..][0..@sizeOf(T)]),
         0x8000...0x9FFF => blk: {
             if (self.isVRAMAccessAllowed()) {
@@ -89,6 +112,9 @@ pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!
                 break :blk 0xFF;
             }
         },
+        0xA000...0xBFFF => if (self.cartridge) | *cartridge| cartridge.*.readRAM(T, address - 0xA000) else MemoryBankErrors.InvalidAddress,
+        0xFE00...0xFE9F => try self.readOAM(T, address),
+        0xFEA0...0xFEFF => 0xFF, // Unusable memory
         0xFF00...0xFF7F => try self.readIO(T, address),
         0xFF80...0xFFFE => std.mem.bytesToValue(T, self.high_ram[(address - 0xFF80)..][0..@sizeOf(T)]),
         0xFFFF => @intCast(T, self.interrupt.enabled_register),
@@ -115,30 +141,36 @@ fn writeIO(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!voi
         0xFF47 => self.background_palette.palette = @intCast(u8, value),
         0xFF46 => {
             // TODO: This is not entirely accurate (cycle and read/write) access-wise
+            // DMA transfer
             var i: usize = 0;
             const base_address: u16 = @intCast(u16, value) << 8;
             while (i < 0xA0) : (i += 1) {
                 try self.write(@intCast(u16, 0xFE00 + i), try self.read(u8, base_address + @intCast(u16, i)));
             }
         },
+        0xFF50 => self.is_bootram_mapped = false,
         0xFF4A => self.window_y = @intCast(u8, value),
         0xFF4B => self.window_x = @intCast(u8, value),
         else => std.mem.copy(u8, self.io_registers[(address - 0xFF00)..][0..bytes_to_write], &std.mem.toBytes(value)),
     }
 }
 
+fn writeOAM(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!void {
+    if (self.lcd_status.getMode() == .HBlank or self.lcd_status.getMode() == .VBlank) {
+        return;
+    }
+    
+    const bytes_to_write = @sizeOf(@TypeOf(value));
+    std.mem.copy(u8, self.sprite_oam[(address - 0xFE00)..][0..bytes_to_write], &std.mem.toBytes(value));
+}
+
 pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!void
 {
-    if (address == 0x8010 and value != 0) {
-        std.debug.print("HELLO {X}\n", .{value});
-        // return MemoryBankErrors.NotWriteableMemory; 
-    }
-
     const bytes_to_write = @sizeOf(@TypeOf(value));
     switch(address)
     {
-        0x00...0xFF,
-        0x104...0x133 => return MemoryBankErrors.NotWriteableMemory,
+        0x0...0x7FFF => if (self.cartridge) | *cartridge| cartridge.*.writeROM(address, value) else return MemoryBankErrors.InvalidAddress,
+        //0x104...0x133 => return MemoryBankErrors.NotWriteableMemory,
         0xC000...0xDFFF => std.mem.copy(u8, self.work_ram[(address - 0xC000)..][0..bytes_to_write], &std.mem.toBytes(value)),
         0x8000...0x9FFF => {
             if (self.isVRAMAccessAllowed()) {
@@ -146,6 +178,9 @@ pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!v
                 std.mem.copy(u8, self.video_ram[(address - 0x8000)..][0..bytes_to_write], &std.mem.toBytes(value));
             }
         },
+        0xA000...0xBFFF => if (self.cartridge) | *cartridge| cartridge.*.writeRAM(address - 0xA000, value) else return MemoryBankErrors.InvalidAddress,
+        0xFE00...0xFE9f => try self.writeOAM(address, value),
+        0xFEA0...0xFEFF => {}, // Unusable memory
         0xFF00...0xFF7F => try self.writeIO(address, value),
         0xFF80...0xFFFE => std.mem.copy(u8, self.high_ram[(address - 0xFF80)..][0..bytes_to_write], &std.mem.toBytes(value)),
         0xFFFF => self.interrupt.enabled_register = @intCast(u8, value),

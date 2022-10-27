@@ -1,1 +1,3 @@
 zig-cache/
+*.gb
+roms/

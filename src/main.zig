@@ -5,6 +5,7 @@ const MemoryBank = @import("MemoryBank.zig");
 const Cpu = @import("Cpu.zig");
 const Ppu = @import("Ppu.zig");
 const Gameboy = @import("Gameboy.zig");
+const Cartridge = @import("Cartridge.zig");
 const constants = @import("constants.zig");
 
 pub fn main() !void {
@@ -13,8 +14,13 @@ pub fn main() !void {
     gameboy.initHardware();
     defer gameboy.deinit();
 
+    var cartridge = try Cartridge.loadFromFile("src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
+    defer cartridge.deinit();
+
+    gameboy.insertCartridge(&cartridge);
+
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    const videoMode = sf.sfVideoMode { .width = @intCast(c_uint, constants.LCDWidth), .height=  @intCast(c_uint, constants.LCDHeight), .bitsPerPixel = @intCast(c_uint, 32)};
+    const videoMode = sf.sfVideoMode { .width = @intCast(c_uint, constants.lcd_width), .height=  @intCast(c_uint, constants.lcd_height), .bitsPerPixel = @intCast(c_uint, 32)};
     //const windowStyle = sf.sfResize | sf.sfTitlebar | sf.sfClose;
     //_ = windowStyle;
 

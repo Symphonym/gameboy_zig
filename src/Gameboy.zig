@@ -4,6 +4,7 @@ const sf = @import("sfml.zig");
 const Cpu = @import("Cpu.zig");
 const Ppu = @import("Ppu.zig");
 const MemoryBank = @import("MemoryBank.zig");
+const Cartridge = @import("Cartridge.zig");
 
 const Gameboy = @This();
 
@@ -43,13 +44,16 @@ pub fn initHardware(self: *Gameboy) void {
     self.ppu = Ppu.init(&self.memory_bank);
 }
 
+pub fn insertCartridge(self: *Gameboy, cartridge: *Cartridge) void {
+    self.memory_bank.insertCartridge(cartridge);
+}
+
 pub fn tick(self: *Gameboy) GameboyErrors!void {
 
     var vram_changed = false;
     while (self.cpu_cycles_this_frame < CYCLES_PER_FRAME) {
         const cycles_taken = try self.cpu.?.tickInstructions();
         try self.ppu.?.tick(cycles_taken);
-        //
 
         if (self.memory_bank.vram_changed) {
             vram_changed = true;
@@ -61,17 +65,12 @@ pub fn tick(self: *Gameboy) GameboyErrors!void {
 
         self.cpu_cycles_this_frame += cycles_taken + interrupt_cycles_taken;
     }
-   // std.debug.print("SCroll Y:{} \n", .{self.memory_bank.scroll_y});
-    
 
+    // std.debug.print("PC: {X}\n", .{self.cpu.?.registers.PC});
 
     if (vram_changed) {
         self.ppu.?.regenerateTileSheet();
     }
-        //self.ppu.?.regenerateTileSheet();
-        //self.regenerateTileSheet();
-
-
 
     self.cpu_cycles_this_frame -= CYCLES_PER_FRAME;
 }
