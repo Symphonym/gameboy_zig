@@ -4,7 +4,6 @@ const sf = @import("sfml.zig");
 const MemoryBank = @import("MemoryBank.zig");
 const tile_util = @import("tile_util.zig");
 const TileCoordinate = tile_util.Coord;
-const PixelFIFO = @import("PixelFIFO.zig");
 const constants = @import("constants.zig");
 
 const Ppu = @This();
@@ -22,9 +21,6 @@ screen: *sf.sfTexture,
 screen_pixels: *sf.sfImage,
 
 memory_bank: *MemoryBank,
-
-background_fifo: PixelFIFO = .{},
-sprite_fifo: PixelFIFO = .{},
 
 current_scanline: u8 = 0,
 fetcher_step: PixelFetcherSteps = .GetTile,
@@ -230,7 +226,7 @@ fn drawTiles(self: *Ppu) !void {
             continue;
         }
 
-        sf.sfImage_setPixel(self.screen_pixels, @intCast(c_uint, pixel), @intCast(c_uint, scanline), self.getColor(color_ID, 0));
+        sf.sfImage_setPixel(self.screen_pixels, @intCast(c_uint, pixel), @intCast(c_uint, scanline), self.getColor(color_ID));
     }
 }
 
@@ -247,10 +243,8 @@ fn getTileAddress(self: Ppu, tile_index_byte: u8) u16 {
 }
 
 // Parses a raw line of the tile in memory and returns data in RGBA32 format
-fn parseTileLineToRGBA32(tile_line: *[2]u8) [32]u8 {
+fn parseTileLineToRGBA32(self: Ppu, tile_line: *[2]u8) [32]u8 {
     var bit_index: usize = 0;
-    // TODO: Use actual palette values
-    const palette_offset = 30;
 
     var RGBA32_data: [32]u8 = .{0} ** 32;
 
@@ -261,10 +255,11 @@ fn parseTileLineToRGBA32(tile_line: *[2]u8) [32]u8 {
         const color_ID = left_bit + right_bit << 1;
 
         const RGBA32_offset: u8 = @intCast(u8, bit_index) * 4;
-        RGBA32_data[RGBA32_offset] = color_ID * palette_offset; 
-        RGBA32_data[RGBA32_offset + 1] = color_ID * palette_offset;
-        RGBA32_data[RGBA32_offset + 2] = color_ID * palette_offset;
-        RGBA32_data[RGBA32_offset + 3] = 255; // Ignore transparency for now
+        const color = self.getColor(color_ID);
+        RGBA32_data[RGBA32_offset] = color.r; 
+        RGBA32_data[RGBA32_offset + 1] = color.g;
+        RGBA32_data[RGBA32_offset + 2] = color.b;
+        RGBA32_data[RGBA32_offset + 3] = color.a;
     }
 
     return RGBA32_data;
@@ -291,7 +286,7 @@ pub fn regenerateTileSheet(self: *Ppu) void {
 
             std.mem.copy(u8,
                 tile_RGBA32_data[(bytes_per_RGBA32_pixel * tile_row_index * tile_util.tile_pixel_dimension)..][0..(bytes_per_RGBA32_pixel * 8)],
-                &parseTileLineToRGBA32(tile_line_data));
+                &self.parseTileLineToRGBA32(tile_line_data));
         }
 
         sf.sfTexture_updateFromPixels(
