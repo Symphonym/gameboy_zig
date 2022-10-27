@@ -45,11 +45,18 @@ const InstructionResult = struct {
 
 memory_bank: *MemoryBank,
 registers: RegisterBank = .{},
+// file_handle: std.fs.File,
 
 pub fn init(memory_bank: *MemoryBank) Cpu {
     return .{
-        .memory_bank = memory_bank
+        .memory_bank = memory_bank,
+        // .file_handle = std.fs.createFileAbsolute("C:\\Users\\larss\\Documents\\Programming\\Zig\\Gameboy\\zig-out\\bin\\execution_log.txt", .{}) catch unreachable,
     };
+}
+
+pub fn deinit(self: *Cpu) void {
+    _ = self;
+    // self.file_handle.close();
 }
 
 fn setFlag(self: *Cpu, flag: Flags, value: bool) void {
@@ -65,6 +72,21 @@ fn getFlag(self: *Cpu, flag: Flags) bool {
 }
 
 pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
+
+    //if (self.registers.PC == 0x99 or self.registers.PC == 0x98) {
+    //     _ = std.fmt.format(self.file_handle.writer(), "A: {X:0>2} F: {X:0>2} B: {X:0>2} C: {X:0>2} D: {X:0>2} E: {X:0>2} H: {X:0>2} L: {X:0>2} SP: {X:0>4} PC: 00:{X:0>4} ({X:0>2} {X:0>2} {X:0>2} {X:0>2})\n",
+    // .{self.registers.AF.Hi, self.registers.AF.Lo,
+    // self.registers.BC.Hi, self.registers.BC.Lo,
+    // self.registers.DE.Hi, self.registers.DE.Lo,
+    // self.registers.HL.Hi, self.registers.HL.Lo,
+    // self.registers.SP,
+    // self.registers.PC,
+    // try self.memory_bank.read(u8, self.registers.PC),
+    // try self.memory_bank.read(u8, self.registers.PC + 1),
+    // try self.memory_bank.read(u8, self.registers.PC + 2),
+    // try self.memory_bank.read(u8, self.registers.PC + 3)}) catch unreachable;
+    //}
+
 
     if (comptime settings.debug) {
         std.debug.print("PC at 0x{X}\n", .{self.registers.PC});
@@ -120,7 +142,6 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
         const interrupt = @intToEnum(Interrupt.Types, @intCast(u8, 0x1) << bit_offset);
 
         if (self.memory_bank.interrupt.isInterruptEnabled(interrupt)) {
-            std.debug.print("HO", .{});
             try self.pushStack(self.registers.PC);
             self.registers.PC = switch(interrupt) {
                 .VBlank => 0x40,
@@ -372,6 +393,7 @@ fn xor(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
     self.registers.AF.Hi = result_value;
 
     self.setFlag(.Z, result_value == 0);
+    try self.writeOperand(.A, result_value);
     return .{};
 }
 
@@ -386,13 +408,17 @@ fn bit(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
 
 fn rl(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
 
-    const target_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const target_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand);
+
+    const prev_carry = self.getFlag(.C);
     self.setFlag(.C, target_operand & 0x80 != 0);
 
-    const result_value = std.math.rotl(u8, 1, target_operand);
+    const result_value = (target_operand << 1) | @boolToInt(prev_carry);//std.math.rotl(u8, 1, target_operand);
     if (op_code_info.flags.Z == .Dependent) {
         self.setFlag(.Z, result_value == 0);
     }
+
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result_value);
     
     return .{};
 }

@@ -5,6 +5,7 @@ const MemoryBank = @import("MemoryBank.zig");
 const Cpu = @import("Cpu.zig");
 const Ppu = @import("Ppu.zig");
 const Gameboy = @import("Gameboy.zig");
+const constants = @import("constants.zig");
 
 pub fn main() !void {
 
@@ -13,7 +14,7 @@ pub fn main() !void {
     defer gameboy.deinit();
 
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    const videoMode = sf.sfVideoMode { .width = @intCast(c_uint, 160), .height=  @intCast(c_uint, 144), .bitsPerPixel = @intCast(c_uint, 32)};
+    const videoMode = sf.sfVideoMode { .width = @intCast(c_uint, constants.LCDWidth), .height=  @intCast(c_uint, constants.LCDHeight), .bitsPerPixel = @intCast(c_uint, 32)};
     //const windowStyle = sf.sfResize | sf.sfTitlebar | sf.sfClose;
     //_ = windowStyle;
 
@@ -27,15 +28,15 @@ pub fn main() !void {
     while (sf.sfRenderWindow_isOpen(window) == 1)
     {
         const delta_time = sf.sfTime_asSeconds(sf.sfClock_restart(clock));
-        //_ = delta_time;
-        std.debug.print("FPS: {d}\n", .{1 / delta_time});
+        _ = delta_time;
+        //std.debug.print("FPS: {d}\n", .{1 / delta_time});
         var event: sf.sfEvent = undefined;
         while (sf.sfRenderWindow_pollEvent(window, &event) == 1)
         {
             if (event.type == sf.sfEvtClosed)
             {
                 sf.sfRenderWindow_close(window);
-                return;
+                //return;
             }
         }
         if (!gameboy.memory_bank.lcd_control.getFlag(.LCD_PPU_enable)) {
@@ -53,6 +54,5 @@ test
     _ = @import("MemoryBank.zig");
     _ = @import("Cpu.zig");
     _ = @import("LCDStatus.zig");
-    _ = @import("PixelFIFO.zig");
     _ = @import("ColorPalette.zig");
 }

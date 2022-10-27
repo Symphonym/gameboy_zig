@@ -69,6 +69,7 @@ fn readIO(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T 
         0xFF43 => @intCast(T, self.scroll_x),
         0xFF44 => @intCast(T, self.scanline_index),
         0xFF45 => @intCast(T, self.ly_compare),
+        0xFF47 => @intCast(T, self.background_palette.palette),
         0xFF4A => @intCast(T, self.window_y),
         0xFF4B => @intCast(T, self.window_x),
         else => std.mem.bytesToValue(T, self.io_registers[(address - 0xFF00)..][0..@sizeOf(T)])
@@ -111,6 +112,7 @@ fn writeIO(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!voi
         0xFF42 => self.scroll_y = @intCast(u8, value),
         0xFF43 => self.scroll_x = @intCast(u8, value),
         0xFF44 => self.scanline_index = @intCast(u8, value),
+        0xFF47 => self.background_palette.palette = @intCast(u8, value),
         0xFF46 => {
             // TODO: This is not entirely accurate (cycle and read/write) access-wise
             var i: usize = 0;
@@ -127,6 +129,11 @@ fn writeIO(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!voi
 
 pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!void
 {
+    if (address == 0x8010 and value != 0) {
+        std.debug.print("HELLO {X}\n", .{value});
+        // return MemoryBankErrors.NotWriteableMemory; 
+    }
+
     const bytes_to_write = @sizeOf(@TypeOf(value));
     switch(address)
     {

@@ -32,6 +32,10 @@ pub fn deinit(self: *Gameboy) void {
     if (self.ppu) | *ppu | {
         ppu.deinit();
     }
+
+    if (self.cpu) | *cpu | {
+        cpu.deinit();
+    }
 }
 
 pub fn initHardware(self: *Gameboy) void {

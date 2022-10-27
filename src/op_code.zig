@@ -130,7 +130,7 @@ pub fn getCBOpCodeInfo(op_code: u8) OpCodeErrors!OpCodeInfo {
     }
 
     return switch(op_code) {
-        0x11 => OpCodeInfo.init(.RL, .C, null, 2, 8, .{.Z = .Dependent, .N = .Reset, .H = .Reset, .C = .Dependent }),
+        0x11 => OpCodeInfo.init(.RL, .C, .C, 2, 8, .{.Z = .Dependent, .N = .Reset, .H = .Reset, .C = .Dependent }),
         0x7C => OpCodeInfo.init(.BIT, .Bit_7, .H, 2, 8, .{.Z = .Dependent, .N = .Reset, .H = .Set }),
         else => blk: {
             std.debug.print("Unhandled CB opcode 0x{X}\n", .{op_code});
@@ -157,7 +157,7 @@ pub fn getOpCodeInfo(op_code: u8) OpCodeErrors!OpCodeInfo {
         0x13 => OpCodeInfo.init(.INC16, .DE, null, 1, 8, .{}),
         0x15 => OpCodeInfo.init(.DEC8, .D, null, 1, 4, .{.Z = .Dependent, .N = .Set, .H = .Dependent }),
         0x16 => OpCodeInfo.init(.LD8, .D, .d8, 2, 8, .{}),
-        0x17 => OpCodeInfo.init(.RL, .A, null, 1, 4, .{.Z = .Reset, .N = .Reset, .H = .Reset, .C = .Dependent }),
+        0x17 => OpCodeInfo.init(.RL, .A, .A, 1, 4, .{.Z = .Reset, .N = .Reset, .H = .Reset, .C = .Dependent }),
         0x18 => OpCodeInfo.init(.JR, .True, .r8, 2, 12, .{}),
         0x20 => OpCodeInfo.init(.JR, .Cond_NZ, .r8, 2, 12, .{}),
         0x1A => OpCodeInfo.init(.LD8, .A, .DE_Addr, 1, 8, .{}),

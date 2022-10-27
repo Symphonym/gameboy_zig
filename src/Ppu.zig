@@ -4,8 +4,8 @@ const sf = @import("sfml.zig");
 const MemoryBank = @import("MemoryBank.zig");
 const tile_util = @import("tile_util.zig");
 const TileCoordinate = tile_util.Coord;
-const TileMap = @import("TileMap.zig");
 const PixelFIFO = @import("PixelFIFO.zig");
+const constants = @import("constants.zig");
 
 const Ppu = @This();
 
@@ -21,8 +21,6 @@ tile_sheet: *sf.sfTexture,
 screen: *sf.sfTexture,
 screen_pixels: *sf.sfImage,
 
-first_tilemap: TileMap,
-second_tilemap: TileMap,
 memory_bank: *MemoryBank,
 
 background_fifo: PixelFIFO = .{},
@@ -35,11 +33,9 @@ should_draw_scanline: bool = false,
 
 pub fn init(memory_bank: *MemoryBank) Ppu {
     var screen_pixels = sf.sfImage_create(
-        @intCast(c_int, 160),
-        @intCast(c_int, 143)) orelse unreachable;
+        @intCast(c_int, constants.LCDWidth),
+        @intCast(c_int, constants.LCDHeight)) orelse unreachable;
     return .{
-        .first_tilemap = TileMap.init(),
-        .second_tilemap = TileMap.init(),
         .tile_sheet = sf.sfTexture_create(
             @intCast(c_int, tile_util.tile_sheet_width * tile_util.tile_pixel_dimension),
             @intCast(c_int, tile_util.tile_sheet_height * tile_util.tile_pixel_dimension)) orelse unreachable,
@@ -50,8 +46,6 @@ pub fn init(memory_bank: *MemoryBank) Ppu {
 }
 
 pub fn deinit(self: *Ppu) void {
-    self.first_tilemap.deinit();
-    self.second_tilemap.deinit();
     sf.sfTexture_destroy(self.tile_sheet);
     sf.sfTexture_destroy(self.screen);
 }
@@ -157,7 +151,16 @@ pub fn draw(self: Ppu, window: *sf.sfRenderWindow) void {
     sf.sfSprite_setTexture(sprite, self.screen, 1);
     sf.sfTexture_updateFromImage(self.screen, self.screen_pixels, 0, 0);
     sf.sfRenderWindow_drawSprite(window, sprite, 0);
-    //self.first_tilemap.draw(window, self.tile_sheet);
+}
+
+fn getColor(self: Ppu, color_id: u8) sf.sfColor {
+   // which bits of the colour palette does the colour id map to?
+   return switch (self.memory_bank.background_palette.getColorForIndex(color_id)) {
+        .White => sf.sfColor { .r = 255, .g = 255, .b = 255, .a = 255 },
+        .LightGray => sf.sfColor { .r = 100, .g = 100, .b = 100, .a = 255 },
+        .DarkGray => sf.sfColor { .r = 200, .g = 200, .b = 200, .a = 255 },
+        .Black => sf.sfColor { .r = 0, .g = 0, .b = 0, .a = 255 },
+   };
 }
 
 fn drawTiles(self: *Ppu) !void {
@@ -213,7 +216,6 @@ fn drawTiles(self: *Ppu) !void {
             try self.memory_bank.read(u8, tile_address + tile_vertical_line * 2 + 1)
         };
 
-        //const color_bit: u8 = pos_x % 8;
         const b: u8 = 7 - (pos_x & 7);
 
         const left_bit = (tile_line_data[0] >> @intCast(u3, b)) & 0x1;
@@ -224,18 +226,11 @@ fn drawTiles(self: *Ppu) !void {
         const scanline = self.memory_bank.scanline_index;
         // safety check to make sure what im about
         // to set is int the 160x144 bounds
-        if ((scanline < 0) or (scanline > 143) or (pixel < 0) or (pixel > 159)) {
+        if ((scanline < 0) or (scanline > constants.LCDHeight - 1) or (pixel < 0) or (pixel > constants.LCDWidth - 1)) {
             continue;
         }
 
-        const color = sf.sfColor {
-            .r = color_ID * 30,
-            .g = color_ID * 30,
-            .b = color_ID * 30,
-            .a = 255,
-        };
-
-        sf.sfImage_setPixel(self.screen_pixels, @intCast(c_uint, pixel), @intCast(c_uint, scanline), color);
+        sf.sfImage_setPixel(self.screen_pixels, @intCast(c_uint, pixel), @intCast(c_uint, scanline), self.getColor(color_ID, 0));
     }
 }
 

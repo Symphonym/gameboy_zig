@@ -13,13 +13,13 @@ pub fn build(b: *std.build.Builder) void {
 
     const exe = b.addExecutable("Gameboy", "src/main.zig");
     exe.addIncludePath("lib/csfml/include");
-    exe.addLibraryPath("lib/csfml/lib/msvc");
+    exe.addLibraryPath("lib/csfml/lib/msvc/debug");
     exe.linkLibC();
-    exe.linkSystemLibrary("csfml-graphics");
-    exe.linkSystemLibrary("csfml-system");
-    exe.linkSystemLibrary("csfml-window");
-    exe.linkSystemLibrary("csfml-audio");
-    exe.linkSystemLibrary("csfml-network");
+    exe.linkSystemLibrary("csfml-graphics-d");
+    exe.linkSystemLibrary("csfml-system-d");
+    exe.linkSystemLibrary("csfml-window-d");
+    exe.linkSystemLibrary("csfml-audio-d");
+    exe.linkSystemLibrary("csfml-network-d");
 
     exe.setTarget(target);
     exe.setBuildMode(mode);
