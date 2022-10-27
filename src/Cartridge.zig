@@ -2,13 +2,15 @@ const std = @import("std");
 const fs = std.fs;
 
 const MBC_RomOnly = @import("MBC/MBC_RomOnly.zig");
+const MBC1 = @import("MBC/MBC1.zig");
 
 const Cartridge = @This();
 const c_allocator = std.heap.c_allocator;
 const max_cartridge_size = 2097152; // 2MB
 
 pub const MBCTypes = union(enum) {
-    MBC_RomOnly: MBC_RomOnly
+    MBC_RomOnly: MBC_RomOnly,
+    MBC1: MBC1,
 };
 
 pub const CartridgeErrors = error {
@@ -19,14 +21,23 @@ pub const CartridgeErrors = error {
 title: [16]u8 = .{0} ** 16,
 mbc: MBCTypes,
 rom: []u8,
+rom_bank_count: usize,
 // rom_size: u16,
 
 pub fn loadFromFile(relative_file_path: []const u8) !Cartridge {
     const rom = fs.cwd().readFileAlloc(c_allocator, relative_file_path, max_cartridge_size) catch return CartridgeErrors.RomTooBig;
     errdefer c_allocator.free(rom);
 
-    const mbc = switch (rom[0x0147]) {
-        0x00 => .{ .MBC_RomOnly = MBC_RomOnly.init(rom) },
+    const rom_bank_count: usize = switch (rom[0x0148]) {
+        0x00 => 2,
+        0x01 => 4,
+        0x02 => 8,
+        0x03 => 16,
+        0x04 => 32,
+        0x05 => 64,
+        0x06 => 128,
+        0x07 => 256,
+        0x08 => 512,
         // 0x01 => .MBC1,
         // 0x05 => .MBC2,
         // 0x19 => .MBC5,
@@ -35,6 +46,19 @@ pub fn loadFromFile(relative_file_path: []const u8) !Cartridge {
             return CartridgeErrors.UnsupportedMBCType; 
         },
     };
+
+    const mbc: MBCTypes = switch (rom[0x0147]) {
+        0x00 => .{ .MBC_RomOnly = MBC_RomOnly.init(rom) },
+        0x01 => .{ .MBC1 = MBC1.init(rom, rom_bank_count) },
+        // 0x01 => .MBC1,
+        // 0x05 => .MBC2,
+        // 0x19 => .MBC5,
+        else => |val|{
+            std.debug.print("Unsupported MBC Type {}\n", .{val});
+            return CartridgeErrors.UnsupportedMBCType; 
+        },
+    };
+
     
     // const rom_size: u16 = switch(rom[0x0148]) {
     //     0x00 => 32
@@ -42,7 +66,8 @@ pub fn loadFromFile(relative_file_path: []const u8) !Cartridge {
     
     var cartridge = Cartridge {
         .rom = rom,
-        .mbc = mbc
+        .mbc = mbc,
+        .rom_bank_count = rom_bank_count,
     };
 
     std.mem.copy(u8, &cartridge.title, rom[0x0134..0x144]);

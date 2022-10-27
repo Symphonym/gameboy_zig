@@ -26,7 +26,7 @@ pub fn main() !void {
 
     const style: sf.sfUint32 = sf.sfDefaultStyle;
     var window = sf.sfRenderWindow_create(videoMode, @ptrCast([*c]const u8, "SFML Works"), style, null) orelse unreachable;
-    sf.sfRenderWindow_setFramerateLimit(window, 60);
+    //sf.sfRenderWindow_setFramerateLimit(window, 60);
     defer sf.sfRenderWindow_destroy(window);
 
     const clock = sf.sfClock_create();

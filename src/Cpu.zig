@@ -297,7 +297,7 @@ fn writeOperand(self: *Cpu, operand: OpCode.Operands, value: anytype) CpuErrors!
     if (type_size == 1) {
         switch (operand) {
             .A => self.registers.AF.Hi = @bitCast(u8, value),
-            .F => self.registers.AF.Lo = @bitCast(u8, value & 0xF0),
+            .F => self.registers.AF.Lo = @bitCast(u8, value) & 0xF0,
             .B => self.registers.BC.Hi = @bitCast(u8, value),
             .C => self.registers.BC.Lo = @bitCast(u8, value),
             .D => self.registers.DE.Hi = @bitCast(u8, value),
