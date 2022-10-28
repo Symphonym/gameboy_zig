@@ -182,7 +182,7 @@ fn drawTiles(self: *Ppu) !void {
         if (drawing_window) {
             break :blk self.memory_bank.scanline_index -% self.memory_bank.window_y;
         } else {
-            break :blk self.memory_bank.scroll_y + self.memory_bank.scanline_index;
+            break :blk self.memory_bank.scroll_y +% self.memory_bank.scanline_index;
         }
     };
 

@@ -14,7 +14,7 @@ pub fn main() !void {
     gameboy.initHardware();
     defer gameboy.deinit();
 
-    var cartridge = try Cartridge.loadFromFile("src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
+    var cartridge = try Cartridge.loadFromFile("src/test_roms/06-ld r,r.gb");//"src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
     defer cartridge.deinit();
 
     gameboy.insertCartridge(&cartridge);
