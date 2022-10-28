@@ -12,8 +12,8 @@ pub const Colors = enum(u2) {
 
 palette: u8 = 0,
 
-pub fn getColorForIndex(self: *ColorPalette, index: u8) Colors {
-    return @intToEnum(Colors, (self.palette >> @intCast(u3, index * 2)) & 0x3);
+pub fn getColorForID(self: *ColorPalette, ID: u3) Colors {
+    return @intToEnum(Colors, (self.palette >> ID) & 0x3);
 }
 
 test "Color palettes" {
@@ -21,6 +21,6 @@ test "Color palettes" {
     var palette = ColorPalette {};
     palette.palette = 0b1101;
 
-    try testing.expectEqual(Colors.Black, palette.getColorForIndex(1));
-    try testing.expectEqual(Colors.LightGray, palette.getColorForIndex(0));
+    try testing.expectEqual(Colors.Black, palette.getColorForID(1));
+    try testing.expectEqual(Colors.LightGray, palette.getColorForID(0));
 }

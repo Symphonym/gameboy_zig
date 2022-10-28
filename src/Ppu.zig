@@ -151,7 +151,7 @@ pub fn draw(self: Ppu, window: *sf.sfRenderWindow) void {
 
 fn getColor(self: Ppu, color_id: u8) sf.sfColor {
    // which bits of the colour palette does the colour id map to?
-   return switch (self.memory_bank.background_palette.getColorForIndex(color_id)) {
+   return switch (self.memory_bank.background_palette.getColorForID(@truncate(u3, color_id))) {
         .White => sf.sfColor { .r = 255, .g = 255, .b = 255, .a = 255 },
         .LightGray => sf.sfColor { .r = 100, .g = 100, .b = 100, .a = 255 },
         .DarkGray => sf.sfColor { .r = 200, .g = 200, .b = 200, .a = 255 },

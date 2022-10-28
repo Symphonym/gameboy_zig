@@ -181,6 +181,8 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .OR => try self.doOr(op_code_info),
         .AND => try self.doAnd(op_code_info),
         .BIT => try self.bit(op_code_info),
+        .SET => try self.set(op_code_info),
+        .RES => try self.res(op_code_info),
         .RL => try self.rl(op_code_info),
         .JR => try self.jr(op_code_info),
         .JP => try self.jp(op_code_info),
@@ -239,14 +241,14 @@ fn readOperand(self: *Cpu, comptime T: type, operand: OpCode.Operands) CpuErrors
                 break :blk try self.memory_bank.read(u8, address);                
             },
             .r8, .d8 => self.memory_bank.read(u8, self.registers.PC + 1),
-            .Bit_0 => 0,
-            .Bit_1 => 1,
-            .Bit_2 => 2,
-            .Bit_3 => 3,
-            .Bit_4 => 4,
-            .Bit_5 => 5,
-            .Bit_6 => 6,
-            .Bit_7 => 7,
+            .Bit_0 => 0x1,
+            .Bit_1 => 0x2,
+            .Bit_2 => 0x4,
+            .Bit_3 => 0x8,
+            .Bit_4 => 0x10,
+            .Bit_5 => 0x20,
+            .Bit_6 => 0x40,
+            .Bit_7 => 0x80,
             .Cond_C => @boolToInt(self.getFlag(.C)),
             .Cond_NC => @boolToInt(!self.getFlag(.C)),
             .Cond_Z => @boolToInt(self.getFlag(.Z)),
@@ -424,9 +426,33 @@ fn doAnd(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResul
 fn bit(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const bit_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
     const target_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand);
-    const result_value = (target_operand >> @intCast(u3, bit_operand)) & 0x1;
+    const result_value = target_operand & bit_operand;
 
     self.setFlag(.Z, result_value == 0);
+    return .{};
+}
+
+fn res(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const bit_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const target_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand);
+    const result_value: u8 = target_operand & (~bit_operand);
+    try self.writeOperand(
+        op_code_info.op_2 orelse return CpuErrors.MissingOperand,
+        result_value
+    );
+
+    return .{};
+}
+
+fn set(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const bit_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const target_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand);
+    const result_value: u8 = target_operand | bit_operand;
+    try self.writeOperand(
+        op_code_info.op_2 orelse return CpuErrors.MissingOperand,
+        result_value
+    );
+
     return .{};
 }
 
