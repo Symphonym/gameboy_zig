@@ -45,6 +45,7 @@ const InstructionResult = struct {
 
 memory_bank: *MemoryBank,
 registers: RegisterBank = .{},
+
 cpu_halted: bool = false,
 halt_bug_triggered: bool = false,
 
@@ -208,7 +209,8 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
             self.memory_bank.interrupt.interrupt_master_enable = false;
             self.memory_bank.interrupt.clearInterruptRequest(interrupt);
 
-            cycles_consumed = 20;
+            const extra_cycle_cost: u32 = if (self.halt_bug_triggered) 4 else 0;
+            cycles_consumed = 22 + extra_cycle_cost;
             break;
         }
     }

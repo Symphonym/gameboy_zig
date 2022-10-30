@@ -576,6 +576,7 @@ pub fn getOpCodeInfo(op_code: u8) OpCodeErrors!OpCodeInfo {
         0xF5 => OpCodeInfo.init(.PUSH, .AF, null, 1, 16, .{}),
         0xF6 => OpCodeInfo.init(.OR, .d8, null, 2, 8, .{ .Z = .Dependent, .N = .Reset, .H = .Reset, .C = .Reset }),
         0xF8 => OpCodeInfo.init(.ADD16_SPi8, .HL, .r8, 2, 12, .{ .Z = .Reset, .N = .Reset, .H = .Dependent, .C = .Dependent }),
+        0xF9 => OpCodeInfo.init(.LD16, .SP, .HL, 1, 8, .{}),
         0xFA => OpCodeInfo.init(.LD8, .A, .d16_Addr, 3, 16, .{}),
         0xFB => OpCodeInfo.init(.EI, null, null, 1, 4, .{}),
         0xFE => OpCodeInfo.init(.CP, .d8, null, 2, 8, .{ .Z = .Dependent, .N = .Set, .H = .Dependent, .C = .Dependent}),
