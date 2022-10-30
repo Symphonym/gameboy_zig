@@ -37,12 +37,6 @@ is_bootram_mapped: bool = true,
 
 cartridge: ?*Cartridge = null,
 
-const nintendo_logo = [_]u8 {
-    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
-    0x00, 0x08 ,0x11 ,0x1F ,0x88 ,0x89 ,0x00 ,0x0E ,0xDC ,0xCC ,0x6E ,0xE6 ,0xDD ,0xDD ,0xD9 ,0x99 ,
-    0xBB, 0xBB ,0x67 ,0x63 ,0x6E ,0x0E ,0xEC ,0xCC ,0xDD ,0xDC ,0x99 ,0x9F ,0xBB ,0xB9 ,0x33  ,0x3E 
-};
-
 pub const MemoryBankErrors = error
 {
     InvalidAddress,
@@ -67,7 +61,8 @@ pub fn insertCartridge(self: *MemoryBank, cartridge: *Cartridge) void {
 
 fn readIO(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T {
     return switch (address) {
-        0xFF04 => @intCast(T, self.timer.divider),
+        0xFF00 => 0xFF, // TODO: Temp make sure all buttons are unpressed
+        0xFF04 => @intCast(T, self.timer.readDivider()),
         0xFF05 => @intCast(T, self.timer.counter),
         0xFF06 => @intCast(T, self.timer.modulo),
         0xFF07 => @intCast(T, self.timer.control),
@@ -76,7 +71,7 @@ fn readIO(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!T 
         0xFF41 => @intCast(T, self.lcd_status.register),
         0xFF42 => @intCast(T, self.scroll_y),
         0xFF43 => @intCast(T, self.scroll_x),
-        0xFF44 => @intCast(T, self.scanline_index),
+        0xFF44 => 0x90, //TODO: Uncomment when not doing blargg tests @intCast(T, self.scanline_index),
         0xFF45 => @intCast(T, self.ly_compare),
         0xFF47 => @intCast(T, self.background_palette.palette),
         0xFF4A => @intCast(T, self.window_y),
@@ -103,7 +98,6 @@ pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!
             }
         },
         0x100...0x7FFF => if (self.cartridge) | *cartridge| cartridge.*.readROM(T, address) else MemoryBankErrors.InvalidAddress,
-        //0x104...0x133 => std.mem.bytesToValue(T, nintendo_logo[(address - 0x104)..][0..@sizeOf(T)]),
         0xC000...0xDFFF => std.mem.bytesToValue(T, self.work_ram[(address - 0xC000)..][0..@sizeOf(T)]),
         0x8000...0x9FFF => blk: {
             if (self.isVRAMAccessAllowed()) {
@@ -128,7 +122,8 @@ pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!
 fn writeIO(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!void {
     const bytes_to_write = @sizeOf(@TypeOf(value));
     switch (address) {
-        0xFF04 => self.timer.divider = 0,
+        0xFF01 => std.debug.print("{c}", .{@intCast(u8, value)}), // Blargg rom debug
+        0xFF04 => self.timer.writeDivider(@intCast(u8, value)),
         0xFF05 => self.timer.counter = @intCast(u8, value),
         0xFF06 => self.timer.modulo = @intCast(u8, value),
         0xFF07 => self.timer.control = @intCast(u8, value),
@@ -166,6 +161,10 @@ fn writeOAM(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!vo
 
 pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!void
 {
+    if (address == 0xFF07) {
+        std.debug.print("TIMER SET: {}\n", .{value});
+    }
+
     const bytes_to_write = @sizeOf(@TypeOf(value));
     switch(address)
     {

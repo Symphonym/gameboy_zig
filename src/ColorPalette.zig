@@ -12,8 +12,11 @@ pub const Colors = enum(u2) {
 
 palette: u8 = 0,
 
-pub fn getColorForID(self: *ColorPalette, ID: u3) Colors {
-    return @intToEnum(Colors, (self.palette >> ID) & 0x3);
+pub fn getColorForID(self: ColorPalette, ID: u3) Colors {
+    if (ID >= 4){
+        @breakpoint();
+    }
+    return @intToEnum(Colors, (self.palette >> ID * 2) & 0x3);
 }
 
 test "Color palettes" {

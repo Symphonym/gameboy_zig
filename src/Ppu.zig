@@ -214,12 +214,12 @@ fn drawTiles(self: *Ppu) !void {
             try self.memory_bank.read(u8, tile_address + tile_vertical_line * 2 + 1)
         };
 
-        const b: u8 = 7 - (pos_x & 7);
+        const bit_index: u8 = 7 - (pos_x % 8);
 
-        const left_bit = (tile_line_data[0] >> @intCast(u3, b)) & 0x1;
-        const right_bit = (tile_line_data[1] >> @intCast(u3, b)) & 0x1;
+        const left_bit = (tile_line_data[0] >> @intCast(u3, bit_index)) & 0x1;
+        const right_bit = (tile_line_data[1] >> @intCast(u3, bit_index)) & 0x1;
 
-        const color_ID = left_bit + right_bit << 1;
+        const color_ID = left_bit | (right_bit << 1);
 
         const scanline = self.memory_bank.scanline_index;
         // safety check to make sure what im about
@@ -254,7 +254,7 @@ fn parseTileLineToRGBA32(self: Ppu, tile_line: *[2]u8) [32]u8 {
         const left_bit = (tile_line[0] >> @intCast(u3, 7 - bit_index)) & 0x1;
         const right_bit = (tile_line[1] >> @intCast(u3, 7 - bit_index)) & 0x1;
 
-        const color_ID = left_bit + right_bit << 1;
+        const color_ID = left_bit | (right_bit << 1);
 
         const RGBA32_offset: u8 = @intCast(u8, bit_index) * 4;
         const color = self.getColor(color_ID);

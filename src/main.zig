@@ -14,7 +14,8 @@ pub fn main() !void {
     gameboy.initHardware();
     defer gameboy.deinit();
 
-    var cartridge = try Cartridge.loadFromFile("src/test_roms/06-ld r,r.gb");//"src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
+    //var cartridge = try Cartridge.loadFromFile("src/test_roms/02-interrupts.gb");//"src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
+    var cartridge = try Cartridge.loadFromFile("src/test_roms/intr_timing.gb");//"src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
     defer cartridge.deinit();
 
     gameboy.insertCartridge(&cartridge);
@@ -25,8 +26,8 @@ pub fn main() !void {
     //_ = windowStyle;
 
     const style: sf.sfUint32 = sf.sfDefaultStyle;
-    var window = sf.sfRenderWindow_create(videoMode, @ptrCast([*c]const u8, "SFML Works"), style, null) orelse unreachable;
-    //sf.sfRenderWindow_setFramerateLimit(window, 60);
+    var window = sf.sfRenderWindow_create(videoMode, @ptrCast([*c]const u8, "Gameboy"), style, null) orelse unreachable;
+    sf.sfRenderWindow_setFramerateLimit(window, 60);
     defer sf.sfRenderWindow_destroy(window);
 
     const clock = sf.sfClock_create();
@@ -61,4 +62,5 @@ test
     _ = @import("Cpu.zig");
     _ = @import("LCDStatus.zig");
     _ = @import("ColorPalette.zig");
+    _ = @import("Interrupt.zig");
 }

@@ -66,8 +66,6 @@ pub fn tick(self: *Gameboy) GameboyErrors!void {
         self.cpu_cycles_this_frame += cycles_taken + interrupt_cycles_taken;
     }
 
-    // std.debug.print("PC: {X}\n", .{self.cpu.?.registers.PC});
-
     if (vram_changed) {
         self.ppu.?.regenerateTileSheet();
     }

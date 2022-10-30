@@ -1,3 +1,4 @@
+const testing = @import("std").testing;
 
 const Interrupt = @This();
 
@@ -26,11 +27,22 @@ pub fn isInterruptEnabled(self: Interrupt, interrupt: Types) bool {
     return self.interrupt_master_enable and self.enabled_register & @enumToInt(interrupt) != 0;
 }
 
-pub fn getInterruptPriority(interrupt: Types) u8 {
-    if (interrupt == .NONE) {
-        return 0;
-    }
+pub fn isInterruptRequested(self: Interrupt, interrupt: Types) bool {
+    return self.request_register & @enumToInt(interrupt) != 0;
+}
 
-    // Lower bits mean higher priority
-    return @intCast(u8, 0xFF) - @enumToInt(interrupt);
+pub fn isAnyInterruptPending(self: Interrupt) bool {
+    return self.request_register & self.enabled_register & 0x1F != 0;
+}
+
+test "Interrupts" {
+    var interrupts = Interrupt {};
+    interrupts.requestInterrupt(.Timer);
+    interrupts.requestInterrupt(.VBlank);
+    interrupts.requestInterrupt(.LCDStat);
+    interrupts.clearInterruptRequest(.Timer);
+
+    try testing.expect(!interrupts.isInterruptRequested(.Timer));
+    try testing.expect(interrupts.isInterruptRequested(.VBlank));
+    try testing.expect(interrupts.isInterruptRequested(.LCDStat));
 }

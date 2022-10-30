@@ -30,12 +30,12 @@ pub const Register = packed struct {
 }; 
 
 pub const RegisterBank = struct {
-    AF: Register = .{},
-    BC: Register = .{},
-    DE: Register = .{},
-    HL: Register = .{},
-    SP: u16 = 0,
-    PC: u16 = 0x000
+    AF: Register = .{ .Hi = 0x01, .Lo = 0xB0 },
+    BC: Register = .{ .Hi = 0x00, .Lo = 0x13 },
+    DE: Register = .{ .Hi = 0x00, .Lo = 0xD8 },
+    HL: Register = .{ .Hi = 0x01, .Lo = 0x4D },
+    SP: u16 = 0xFFFE,
+    PC: u16 = 0x100
 };
 
 const InstructionResult = struct {
@@ -45,6 +45,10 @@ const InstructionResult = struct {
 
 memory_bank: *MemoryBank,
 registers: RegisterBank = .{},
+cpu_halted: bool = false,
+halt_bug_triggered: bool = false,
+
+IME_request: ?bool = null,
 // file_handle: std.fs.File,
 
 pub fn init(memory_bank: *MemoryBank) Cpu {
@@ -73,7 +77,7 @@ fn getFlag(self: *Cpu, flag: Flags) bool {
 
 pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
 
-    //if (self.registers.PC == 0x99 or self.registers.PC == 0x98) {
+    if (!self.memory_bank.is_bootram_mapped) {
     //     _ = std.fmt.format(self.file_handle.writer(), "A: {X:0>2} F: {X:0>2} B: {X:0>2} C: {X:0>2} D: {X:0>2} E: {X:0>2} H: {X:0>2} L: {X:0>2} SP: {X:0>4} PC: 00:{X:0>4} ({X:0>2} {X:0>2} {X:0>2} {X:0>2})\n",
     // .{self.registers.AF.Hi, self.registers.AF.Lo,
     // self.registers.BC.Hi, self.registers.BC.Lo,
@@ -85,8 +89,11 @@ pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
     // try self.memory_bank.read(u8, self.registers.PC + 1),
     // try self.memory_bank.read(u8, self.registers.PC + 2),
     // try self.memory_bank.read(u8, self.registers.PC + 3)}) catch unreachable;
-    //}
+    }
 
+    if (self.cpu_halted) {
+        return 1;
+    }
 
     if (comptime settings.debug) {
         std.debug.print("PC at 0x{X}\n", .{self.registers.PC});
@@ -114,10 +121,30 @@ pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
         });
     }
 
+    if (self.registers.PC == 0xC7F3) // ((op_code_info.op_1 orelse .A == .HL) or (op_code_info.op_2 orelse .A == .HL)))
+    {
+        // std.debug.print("Cpu tick failed at\n", .{});
+        // std.debug.print("PC: 0x{X}\n", .{self.registers.PC});
+        // std.debug.print("Op code: 0x{X} ({s} {s},{s})\n", .{
+        //     op_code,
+        //     @tagName(op_code_info.inst),
+        //     if (op_code_info.op_1) |val| @tagName(val) else "null",
+        //     if (op_code_info.op_2) |val| @tagName(val) else "null"
+        // });
+        // const wat: u16 = @intCast(u16, try self.readOperand(u8, op_code_info.op_2 orelse unreachable));
+        // std.debug.print("FF ADDRESS: {X}\n", .{ (0xFF00 + wat)});
+        // std.debug.print("SCANLINE: {X}\n", .{ (self.memory_bank.scanline_index)});
+        // @panic("YO");
+    }
+
+    const halt_bug_applies = self.halt_bug_triggered;
+    self.halt_bug_triggered = false;
     const instruction_result = try self.processInstruction(op_code_info);
 
     const cycles_taken = instruction_result.cycles_taken orelse op_code_info.cycles_taken;
-    self.registers.PC = instruction_result.new_pc orelse self.registers.PC + op_code_info.length;
+    if (!halt_bug_applies) {
+        self.registers.PC = instruction_result.new_pc orelse self.registers.PC + op_code_info.length;
+    }
     
     if (comptime settings.debug and instruction_result.new_pc != null) {
         std.debug.print("Jumped to new PC 0x{X}\n", .{self.registers.PC});
@@ -134,14 +161,34 @@ fn adjustFlagFromInstruction(self: *Cpu, flag: Flags, instruction_flag_state: Op
     });
 }
 
+fn handleCpuHalt(self: *Cpu) void {
+    if (self.memory_bank.interrupt.interrupt_master_enable) {
+
+        // If IME is enabled and an interrupt is pending, CPU is woken up
+        if (self.memory_bank.interrupt.isAnyInterruptPending()) {
+            self.cpu_halted = false;
+        }
+    } else {
+        if (self.memory_bank.interrupt.isAnyInterruptPending()) {
+            self.cpu_halted = false;
+            self.halt_bug_triggered = true;
+        }
+    }
+}
+
 pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
     var bit_offset: u3 = 0;
     var cycles_consumed: u32 = 0;
 
+    if (self.cpu_halted) {
+        self.handleCpuHalt();
+    }
+
     while (bit_offset < 5) : (bit_offset += 1) {
         const interrupt = @intToEnum(Interrupt.Types, @intCast(u8, 0x1) << bit_offset);
 
-        if (self.memory_bank.interrupt.isInterruptEnabled(interrupt)) {
+        if (self.memory_bank.interrupt.isInterruptRequested(interrupt) and self.memory_bank.interrupt.isInterruptEnabled(interrupt)) {
+            std.debug.print("NTETE {s} PC {X}\n", .{@tagName(interrupt), self.registers.PC});
             try self.pushStack(self.registers.PC);
             self.registers.PC = switch(interrupt) {
                 .VBlank => 0x40,
@@ -151,6 +198,7 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
                 .Joypad => 0x60,
                 else => return CpuErrors.InvalidInterrupt
             };
+            std.debug.print("POST {s} PC {X}\n", .{@tagName(interrupt), self.registers.PC});
 
             if (comptime settings.debug) {
                 std.debug.print("Processed interrupt {s}", .{@tagName(interrupt)});
@@ -164,8 +212,14 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
             break;
         }
     }
+    
+    if (self.IME_request) |value| {
+        std.debug.print("EI ENBALE PC {X} {}\n", .{self.registers.PC, value});
+        self.memory_bank.interrupt.interrupt_master_enable = value;
+        self.IME_request = null;
+    }
 
-    return 0;
+    return cycles_consumed;
 }
 
 fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
@@ -179,11 +233,13 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .LD8io_from => try self.ld8io_from(op_code_info),
         .LD16 => try self.ld16(op_code_info),
         .XOR => try self.xor(op_code_info),
+        .CCF => try self.ccf(op_code_info),
         .OR => try self.doOr(op_code_info),
         .AND => try self.doAnd(op_code_info),
         .BIT => try self.bit(op_code_info),
         .SET => try self.set(op_code_info),
         .RES => try self.res(op_code_info),
+        .SWAP => try self.swap(op_code_info),
         .RR => try self.rr(op_code_info),
         .RL => try self.rl(op_code_info),
         .SRL => try self.srl(op_code_info),
@@ -197,7 +253,9 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .ADC => try self.adc(op_code_info),
         .ADD8 => try self.add8(op_code_info),
         .ADD16 => try self.add16(op_code_info),
+        .ADD16_SPi8 => try self.add16_SPi8(op_code_info),
         .SUB => try self.sub(op_code_info),
+        .SBC => try self.adc(op_code_info),
         .INC8 => try self.inc8(op_code_info),
         .INC16 => try self.inc16(op_code_info),
         .DEC8 => try self.dec8(op_code_info),
@@ -358,7 +416,9 @@ fn pushStack(self: *Cpu, value: anytype) CpuErrors!void {
 ///////////////
 
 fn halt(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
-    // TODO: HALTING
+    _ = op_code_info;
+    self.cpu_halted = true;
+    std.debug.print("CPU HALTED\n", .{});
     return .{};
 }
 
@@ -414,6 +474,12 @@ fn xor(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
     return .{};
 }
 
+fn ccf(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    _ = op_code_info;
+    self.setFlag(.C, !self.getFlag(.C));
+    return .{};
+}
+
 fn doOr(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const operand_value = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
     const result_value = self.registers.AF.Hi | operand_value;
@@ -447,6 +513,20 @@ fn res(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
     const result_value: u8 = target_operand & (~bit_operand);
     try self.writeOperand(
         op_code_info.op_2 orelse return CpuErrors.MissingOperand,
+        result_value
+    );
+
+    return .{};
+}
+
+fn swap(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const target_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result_value: u8 = ((target_operand & 0xF) << 4) | ((target_operand & 0xF0) >> 4);
+    
+    self.setFlag(.Z, result_value == 0);
+    
+    try self.writeOperand(
+        op_code_info.op_1 orelse return CpuErrors.MissingOperand,
         result_value
     );
 
@@ -643,18 +723,22 @@ fn inc16(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResul
 }
 
 fn dec8(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
-    const result = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand) -% 1;
+    const first_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const second_operand: u8 = 1;
+    const result = first_operand -% second_operand;
     try self.writeOperand(
         op_code_info.op_1 orelse return CpuErrors.MissingOperand,
         result);
 
     self.setFlag(.Z, result == 0);
-    self.setFlag(.H, result & 0xFF == 0xFF);
+    self.setFlag(.H, (first_operand & 0xF) < (second_operand & 0xF));
     return .{};
 }
 
 fn dec16(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
-    const result = try self.readOperand(u16, op_code_info.op_1 orelse return CpuErrors.MissingOperand) -% 1;
+    const first_operand = try self.readOperand(u16, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const second_operand: u16 = 1;
+    const result = first_operand -% second_operand;
     try self.writeOperand(
         op_code_info.op_1 orelse return CpuErrors.MissingOperand,
         result);
@@ -707,9 +791,28 @@ fn add16(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResul
     var result: u16 = undefined;
     const overflow: bool = @addWithOverflow(u16, first_operand, second_operand, &result);
 
-    self.setFlag(.Z, result == 0);
     self.setFlag(.H, (first_operand & 0xFFF) + (second_operand & 0xFFF) > 0xFFF);
     self.setFlag(.C, overflow);
+
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
+    return .{};
+}
+
+fn add16_SPi8(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const first_operand: u16 = self.registers.SP;
+    const offset: i8 = try self.readOperand(i8, op_code_info.op_2 orelse return CpuErrors.MissingOperand);
+    const positive_offset: u8 = std.math.absCast(offset);
+
+    var result: u16 = undefined;
+    if (offset < 0) {
+        result = first_operand -% positive_offset;
+        self.setFlag(.H, (result & 0xF) <= (first_operand & 0xF));
+        self.setFlag(.C, (result & 0xFF) <= (first_operand & 0xFF));
+    } else {
+        result = first_operand +% positive_offset;
+        self.setFlag(.H, first_operand & 0xF +% positive_offset > 0xF);
+        self.setFlag(.C, first_operand & 0xFF +% positive_offset > 0xFF);
+    }
 
     try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
     return .{};
@@ -727,9 +830,25 @@ fn sub(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
     return .{};
 }
 
+fn sbc(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    //var result = undefined;
+    const first_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const second_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand) + @boolToInt(self.getFlag(.C));
+    
+    const result = first_operand -% second_operand;
+    //const overflow: bool = @subWithOverflow(u8, first_operand, second_operand, &result);
+    //_ = overflow;
+    self.setFlag(.Z, result == 0);
+    self.setFlag(.H, (first_operand & 0xF) < (second_operand & 0xF));
+    self.setFlag(.C, first_operand > second_operand);
+
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
+    return .{};
+}
+
 fn ei(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     _ = op_code_info;
-    self.memory_bank.interrupt.interrupt_master_enable = true;
+    self.IME_request = true;
     return .{};
 }
 
@@ -880,4 +999,55 @@ test "Cpu push stack" {
     try cpu.pushStack(val);
 
     try testing.expectEqual(val, try memory_bank.read(u16, cpu.registers.SP));
+}
+
+test "Cpu dec8 flags" {
+    var memory_bank = MemoryBank {};
+    var cpu = Cpu.init(&memory_bank);
+    const op_code_info = OpCode.OpCodeInfo.init(.DEC8, .C, null, 1, 4, .{.Z = .Dependent, .N = .Set, .H = .Dependent });
+
+    cpu.registers.BC.Lo = 0x10;
+    _ = try cpu.processInstruction(op_code_info);
+
+    try testing.expect(!cpu.getFlag(.Z));
+    try testing.expect(cpu.getFlag(.H));
+}
+
+test "Cpu add16 flags" {
+    var memory_bank = MemoryBank {};
+    var cpu = Cpu.init(&memory_bank);
+    const op_code_info = OpCode.OpCodeInfo.init(.ADD16, .HL, .HL, 1, 8, .{ .Z = .Unchanged, .N = .Reset, .H = .Dependent, .C = .Dependent });
+
+    cpu.registers.HL.ptr().* = 0x2610;
+    _ = try cpu.processInstruction(op_code_info);
+
+    try testing.expect(!cpu.getFlag(.H));
+    try testing.expect(!cpu.getFlag(.C));
+}
+
+test "Cpu swap flags" {
+    var memory_bank = MemoryBank {};
+    var cpu = Cpu.init(&memory_bank);
+    const op_code_info = OpCode.OpCodeInfo.init(.SWAP, .B, null, 2, 8, .{ .Z = .Dependent, .N = .Reset, .H = .Reset, .C = .Reset });
+
+    cpu.registers.BC.Hi = 0xAB;
+    _ = try cpu.processInstruction(op_code_info);
+
+    try testing.expectEqual(@intCast(u8, 0xBA), cpu.registers.BC.Hi);
+}
+
+test "Cpu add16_SPi8 flags" {
+    var memory_bank = MemoryBank {};
+    var cpu = Cpu.init(&memory_bank);
+    const op_code_info = OpCode.OpCodeInfo.init(.ADD16_SPi8, .HL, .B, 2, 12, .{ .Z = .Reset, .N = .Reset, .H = .Dependent, .C = .Dependent });
+
+    const signed_val: i8 = -2;
+    cpu.registers.BC.Hi = @bitCast(u8, signed_val);
+    cpu.registers.SP = 0xDFFD;
+    _ = try cpu.processInstruction(op_code_info);
+
+    try testing.expectEqual(@intCast(u16, 0xDFFB), cpu.registers.HL.ptr().*);
+
+    try testing.expect(cpu.getFlag(.H));
+    try testing.expect(cpu.getFlag(.C));
 }

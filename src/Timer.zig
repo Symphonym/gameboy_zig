@@ -1,8 +1,11 @@
+const std = @import("std");
 
 const MemoryBank = @import("MemoryBank.zig");
 const Timer = @This();
 
-divider: u8 = 0,
+
+internal_counter: u16 = 0xABCC,
+
 counter: u8 = 0,
 modulo: u8 = 0,
 control: u8 = 0,
@@ -28,6 +31,15 @@ pub fn tick(self: *Timer, cycles_taken: u32, memory_bank: *MemoryBank) void {
     self.tickTimer(cycles_taken, memory_bank);
 }
 
+pub fn writeDivider(self: *Timer, divider_value: u8) void {
+    _ = divider_value;
+    self.internal_counter = 0;
+}
+
+pub fn readDivider(self: *Timer) u8 {
+    return @intCast(u8, (self.internal_counter >> 8) & 0xFF);
+}
+
 fn tickTimer(self: *Timer, cycles_taken: u32, memory_bank: *MemoryBank) void {
     if (!self.isTimerEnabled()) {
         return;
@@ -41,6 +53,7 @@ fn tickTimer(self: *Timer, cycles_taken: u32, memory_bank: *MemoryBank) void {
     };
 
     self.cycles_processed += cycles_taken;
+
     if (self.cycles_processed >= cycles_needed) {
         var result: u8 = 0;
         if (@addWithOverflow(u8, self.counter, 1, &result)) {
@@ -54,15 +67,11 @@ fn tickTimer(self: *Timer, cycles_taken: u32, memory_bank: *MemoryBank) void {
 }
 
 fn tickDivider(self: *Timer, cycles_taken: u32) void {
+    self.internal_counter +%= @truncate(u16, cycles_taken);
     self.divider_cycles_processed += cycles_taken;
+
     if (self.divider_cycles_processed >= 256) {
-        var result: u8 = 0;
-        if (@addWithOverflow(u8, self.divider, 1, &result)) {
-            self.divider = self.modulo;
-        } else {
-            self.divider = result;
-        }
-        self.cycles_processed = 0;
+        self.divider_cycles_processed = 0;
     }
 }
 
