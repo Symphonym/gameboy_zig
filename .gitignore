@@ -1,3 +1,4 @@
 zig-cache/
 *.gb
 roms/
+*execution_log.txt

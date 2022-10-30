@@ -45,7 +45,7 @@ pub const MemoryBankErrors = error
 
 pub fn tick(self: *MemoryBank, cycles_taken: u32) void {
     self.vram_changed = false;
-    self.timer.tick(cycles_taken, self);
+    self.timer.tick(cycles_taken, &self.interrupt);
 }
 
 fn isVRAMAccessAllowed(self: MemoryBank) bool {
@@ -161,10 +161,6 @@ fn writeOAM(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!vo
 
 pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!void
 {
-    if (address == 0xFF07) {
-        std.debug.print("TIMER SET: {}\n", .{value});
-    }
-
     const bytes_to_write = @sizeOf(@TypeOf(value));
     switch(address)
     {

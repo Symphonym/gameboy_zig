@@ -66,9 +66,9 @@ pub fn tick(self: *Gameboy) GameboyErrors!void {
         self.cpu_cycles_this_frame += cycles_taken + interrupt_cycles_taken;
     }
 
-    if (vram_changed) {
-        self.ppu.?.regenerateTileSheet();
-    }
+    // if (vram_changed) {
+    //     self.ppu.?.regenerateTileSheet();
+    // }
 
     self.cpu_cycles_this_frame -= CYCLES_PER_FRAME;
 }

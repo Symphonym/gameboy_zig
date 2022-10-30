@@ -1,6 +1,7 @@
 const std = @import("std");
+const testing = std.testing;
 
-const MemoryBank = @import("MemoryBank.zig");
+const Interrupt = @import("Interrupt.zig");
 const Timer = @This();
 
 
@@ -12,6 +13,8 @@ control: u8 = 0,
 
 cycles_processed: u32 = 0,
 divider_cycles_processed: u32 = 0,
+previous_obscure_bit: bool = false,
+request_interrupt: bool = false,
 
 pub const TimerSpeed = enum(u8) {
     Cpu_Div_1024 = 0,
@@ -20,15 +23,21 @@ pub const TimerSpeed = enum(u8) {
     Cpu_Div_256 = 3,
 };
 
-pub fn init(memory_bank: *MemoryBank) Timer {
-    return .{
-        .memory_bank = memory_bank
-    };
-}
-
-pub fn tick(self: *Timer, cycles_taken: u32, memory_bank: *MemoryBank) void {
+pub fn tick(self: *Timer, cycles_taken: u32, interrupt: *Interrupt) void {
+    
+    if (self.request_interrupt) {
+        self.counter = self.modulo;
+        interrupt.requestInterrupt(.Timer);
+    }
+    
+    const falling_edge: bool = self.previous_obscure_bit and !self.getObscureBit();
+    self.previous_obscure_bit = self.getObscureBit();
+    if (falling_edge) {
+        self.incrementTimer();
+    }
+    
     self.tickDivider(cycles_taken);
-    self.tickTimer(cycles_taken, memory_bank);
+    self.tickTimer(cycles_taken);
 }
 
 pub fn writeDivider(self: *Timer, divider_value: u8) void {
@@ -40,7 +49,7 @@ pub fn readDivider(self: *Timer) u8 {
     return @intCast(u8, (self.internal_counter >> 8) & 0xFF);
 }
 
-fn tickTimer(self: *Timer, cycles_taken: u32, memory_bank: *MemoryBank) void {
+fn tickTimer(self: *Timer, cycles_taken: u32) void {
     if (!self.isTimerEnabled()) {
         return;
     }
@@ -55,13 +64,7 @@ fn tickTimer(self: *Timer, cycles_taken: u32, memory_bank: *MemoryBank) void {
     self.cycles_processed += cycles_taken;
 
     if (self.cycles_processed >= cycles_needed) {
-        var result: u8 = 0;
-        if (@addWithOverflow(u8, self.counter, 1, &result)) {
-            memory_bank.interrupt.requestInterrupt(.Timer);
-            self.counter = self.modulo;
-        } else {
-            self.counter = result;
-        }
+        self.incrementTimer();
         self.cycles_processed = 0;
     }
 }
@@ -75,10 +78,100 @@ fn tickDivider(self: *Timer, cycles_taken: u32) void {
     }
 }
 
+fn incrementTimer(self: *Timer) void {
+    var result: u8 = 0;
+    if (@addWithOverflow(u8, self.counter, 1, &result)) {
+        self.request_interrupt = true;
+        self.counter = 0;
+    } else {
+        self.counter = result;
+    }
+}
+
+fn getObscureBit(self: Timer) bool {
+    const internal_clock_bits_to_select = [_]u4 { 9, 3, 5, 7 };
+    const bit_index_to_select = self.control & 0x3;
+    const internal_clock_bit_value = self.internal_counter & (@intCast(u16, 0x1) << internal_clock_bits_to_select[bit_index_to_select]);
+    return internal_clock_bit_value != 0 and self.isTimerEnabled();
+}
+
 pub fn getTimerSpeed(self: Timer) TimerSpeed {
-    return @intToEnum(TimerSpeed, (self.control & 0x3) >> 1);
+    return @intToEnum(TimerSpeed, self.control & 0x3);
 }
 
 pub fn isTimerEnabled(self: Timer) bool {
     return self.control & 0x4 != 0;
+}
+
+test "Timer speed mode" {
+    var timer = Timer {};
+
+    timer.control = 0b100;
+    try testing.expectEqual(TimerSpeed.Cpu_Div_1024, timer.getTimerSpeed());
+
+    timer.control = 0b101;
+    try testing.expectEqual(TimerSpeed.Cpu_Div_16, timer.getTimerSpeed());
+
+    timer.control = 0b110;
+    try testing.expectEqual(TimerSpeed.Cpu_Div_64, timer.getTimerSpeed());
+
+    timer.control = 0b111;
+    try testing.expectEqual(TimerSpeed.Cpu_Div_256, timer.getTimerSpeed());
+}
+
+test "Timer obscure bit" {
+    var timer = Timer {};
+
+    timer.internal_counter = 0b01000;
+    timer.control = 0b101;
+
+    try testing.expect(timer.getObscureBit());
+
+    timer.control = 0b110;
+
+    try testing.expect(!timer.getObscureBit());
+
+    timer.internal_counter = 0b101000;
+
+    try testing.expect(timer.getObscureBit());
+}
+
+test "Timer TIMA obscure increase, div reset" {
+    var timer = Timer {};
+    var interrupt = Interrupt {};
+
+    timer.internal_counter = 0;
+    timer.control = 0x4 | @enumToInt(TimerSpeed.Cpu_Div_1024);
+
+    while (!timer.previous_obscure_bit) {
+        timer.tick(4, &interrupt);
+    }
+
+    const counter_before_div_reset = timer.counter;
+    try testing.expect(timer.previous_obscure_bit);
+
+    timer.writeDivider(0);
+    timer.tick(4, &interrupt);
+
+    try testing.expectEqual(counter_before_div_reset + 1, timer.counter);
+}
+
+test "Timer TIMA obscure increase, timer disable" {
+    var timer = Timer {};
+    var interrupt = Interrupt {};
+
+    timer.internal_counter = 0;
+    timer.control = 0x4 | @enumToInt(TimerSpeed.Cpu_Div_256);
+
+    while (!timer.previous_obscure_bit) {
+        timer.tick(4, &interrupt);
+    }
+
+    const counter_before_div_reset = timer.counter;
+    try testing.expect(timer.previous_obscure_bit);
+
+    timer.control &= ~@intCast(u8, 0x4); // Disable timer
+    timer.tick(4, &interrupt);
+
+    try testing.expectEqual(counter_before_div_reset + 1, timer.counter);
 }

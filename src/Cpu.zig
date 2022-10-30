@@ -51,6 +51,7 @@ halt_bug_triggered: bool = false,
 
 IME_request: ?bool = null,
 // file_handle: std.fs.File,
+// buffer_writer: ?std.io.BufferedWriter(4096, std.fs.File.Writer) = null,
 
 pub fn init(memory_bank: *MemoryBank) Cpu {
     return .{
@@ -61,6 +62,9 @@ pub fn init(memory_bank: *MemoryBank) Cpu {
 
 pub fn deinit(self: *Cpu) void {
     _ = self;
+    // if (self.buffer_writer) |*writer| {
+    //     writer.*.flush() catch unreachable;
+    // }
     // self.file_handle.close();
 }
 
@@ -78,8 +82,12 @@ fn getFlag(self: *Cpu, flag: Flags) bool {
 
 pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
 
-    if (!self.memory_bank.is_bootram_mapped) {
-    //     _ = std.fmt.format(self.file_handle.writer(), "A: {X:0>2} F: {X:0>2} B: {X:0>2} C: {X:0>2} D: {X:0>2} E: {X:0>2} H: {X:0>2} L: {X:0>2} SP: {X:0>4} PC: 00:{X:0>4} ({X:0>2} {X:0>2} {X:0>2} {X:0>2})\n",
+    // if (self.buffer_writer == null) {
+    //     self.buffer_writer = std.io.bufferedWriter(self.file_handle.writer());
+    // }
+
+    // if (!self.memory_bank.is_bootram_mapped) {
+    //     _ = std.fmt.format(self.buffer_writer.?.writer(), "A: {X:0>2} F: {X:0>2} B: {X:0>2} C: {X:0>2} D: {X:0>2} E: {X:0>2} H: {X:0>2} L: {X:0>2} SP: {X:0>4} PC: 00:{X:0>4} ({X:0>2} {X:0>2} {X:0>2} {X:0>2})\n",
     // .{self.registers.AF.Hi, self.registers.AF.Lo,
     // self.registers.BC.Hi, self.registers.BC.Lo,
     // self.registers.DE.Hi, self.registers.DE.Lo,
@@ -90,7 +98,7 @@ pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
     // try self.memory_bank.read(u8, self.registers.PC + 1),
     // try self.memory_bank.read(u8, self.registers.PC + 2),
     // try self.memory_bank.read(u8, self.registers.PC + 3)}) catch unreachable;
-    }
+    // }
 
     if (self.cpu_halted) {
         return 1;
@@ -189,7 +197,6 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
         const interrupt = @intToEnum(Interrupt.Types, @intCast(u8, 0x1) << bit_offset);
 
         if (self.memory_bank.interrupt.isInterruptRequested(interrupt) and self.memory_bank.interrupt.isInterruptEnabled(interrupt)) {
-            std.debug.print("NTETE {s} PC {X}\n", .{@tagName(interrupt), self.registers.PC});
             try self.pushStack(self.registers.PC);
             self.registers.PC = switch(interrupt) {
                 .VBlank => 0x40,
@@ -199,7 +206,6 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
                 .Joypad => 0x60,
                 else => return CpuErrors.InvalidInterrupt
             };
-            std.debug.print("POST {s} PC {X}\n", .{@tagName(interrupt), self.registers.PC});
 
             if (comptime settings.debug) {
                 std.debug.print("Processed interrupt {s}", .{@tagName(interrupt)});
@@ -216,7 +222,6 @@ pub fn tickInterrupts(self: *Cpu) CpuErrors!u32 {
     }
     
     if (self.IME_request) |value| {
-        std.debug.print("EI ENBALE PC {X} {}\n", .{self.registers.PC, value});
         self.memory_bank.interrupt.interrupt_master_enable = value;
         self.IME_request = null;
     }
@@ -243,12 +248,17 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .RES => try self.res(op_code_info),
         .SWAP => try self.swap(op_code_info),
         .RR => try self.rr(op_code_info),
-        .RL => try self.rl(op_code_info),
+        .RRC => try self.rrc(op_code_info),
+        .SRA => try self.sra(op_code_info),
         .SRL => try self.srl(op_code_info),
+        .RL => try self.rl(op_code_info),
+        .RLC => try self.rlc(op_code_info),
+        .SLA => try self.sla(op_code_info),
         .JR => try self.jr(op_code_info),
         .JP => try self.jp(op_code_info),
         .RET => try self.ret(op_code_info),
         .RETI => try self.reti(op_code_info),
+        .RST => try self.rst(op_code_info),
         .CALL => try self.call(op_code_info),
         .PUSH => try self.push(op_code_info),
         .POP => try self.pop(op_code_info),
@@ -257,7 +267,7 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .ADD16 => try self.add16(op_code_info),
         .ADD16_SPi8 => try self.add16_SPi8(op_code_info),
         .SUB => try self.sub(op_code_info),
-        .SBC => try self.adc(op_code_info),
+        .SBC => try self.sbc(op_code_info),
         .INC8 => try self.inc8(op_code_info),
         .INC16 => try self.inc16(op_code_info),
         .DEC8 => try self.dec8(op_code_info),
@@ -265,6 +275,9 @@ fn processInstruction(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Ins
         .CP => try self.cp(op_code_info),
         .EI => try self.ei(op_code_info),
         .DI => try self.di(op_code_info),
+        .DAA => try self.daa(op_code_info),
+        .CPL => try self.cpl(op_code_info),
+        .SCF => try self.scf(op_code_info),
         // else => return CpuErrors.UnhandledOpCode,
     };
     
@@ -319,6 +332,14 @@ fn readOperand(self: *Cpu, comptime T: type, operand: OpCode.Operands) CpuErrors
             .Cond_NZ => @boolToInt(!self.getFlag(.Z)),
             .True => 1,
             .False => 0,
+            .Hex_00 => 0x00,
+            .Hex_10 => 0x10,
+            .Hex_20 => 0x20,
+            .Hex_30 => 0x30,
+            .Hex_08 => 0x08,
+            .Hex_18 => 0x18,
+            .Hex_28 => 0x28,
+            .Hex_38 => 0x38,
             else => CpuErrors.OperandNotHandled,
         };
 
@@ -408,8 +429,8 @@ fn getAddrOfNextInstruction(self: *Cpu, current_op_code_info: OpCode.OpCodeInfo)
     return self.registers.PC + current_op_code_info.length;
 }
 fn pushStack(self: *Cpu, value: anytype) CpuErrors!void {
-    self.registers.SP -= 1;
-    self.registers.SP -= @sizeOf(@TypeOf(value)) - 1;
+    self.registers.SP -%= 1;
+    self.registers.SP -%= @sizeOf(@TypeOf(value)) - 1;
     try self.memory_bank.write(self.registers.SP, value);
 }
 
@@ -420,19 +441,18 @@ fn pushStack(self: *Cpu, value: anytype) CpuErrors!void {
 fn halt(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     _ = op_code_info;
     self.cpu_halted = true;
-    std.debug.print("CPU HALTED\n", .{});
     return .{};
 }
 
 fn ld8i(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const result = try self.ld8(op_code_info);
-    self.registers.HL.ptr().* += 1;
+    self.registers.HL.ptr().* +%= 1;
     return result;
 }
 
 fn ld8d(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     const result = self.ld8(op_code_info);
-    self.registers.HL.ptr().* -= 1;
+    self.registers.HL.ptr().* -%= 1;
     return result;
 }
 
@@ -581,6 +601,57 @@ fn rl(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     return .{};
 }
 
+fn rlc(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+
+    const target_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result = std.math.rotl(u8, target_operand, 1);
+
+    self.setFlag(.C, result & 0x1 != 0);
+    self.setFlag(.Z, result == 0);
+    
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
+    
+    return .{};
+}
+
+fn rrc(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+
+    const target_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result = std.math.rotr(u8, target_operand, 1);
+
+    self.setFlag(.C, result & 0x80 != 0);
+    self.setFlag(.Z, result == 0);
+    
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
+    
+    return .{};
+}
+
+fn sla(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const target_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result = target_operand << 1;
+
+    self.setFlag(.C, target_operand & 0x80 != 0);
+    self.setFlag(.Z, result == 0);
+    
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
+    
+    return .{};
+}
+
+fn sra(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+
+    const target_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    const result = (target_operand >> 1) | (target_operand & 0x80);
+
+    self.setFlag(.C, target_operand & 0x1 != 0);
+    self.setFlag(.Z, result == 0);
+    
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
+    
+    return .{};
+}
+
 fn srl(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
 
     const target_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
@@ -658,6 +729,15 @@ fn reti(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult
     const result = self.ret(op_code_info);
     self.memory_bank.interrupt.interrupt_master_enable = true;
     return result;
+}
+
+fn rst(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    const target_address = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
+    try self.pushStack(self.getAddrOfNextInstruction(op_code_info));
+    
+    return .{ 
+        .new_pc = @intCast(u16, target_address),
+    };
 }
 
 fn call(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
@@ -812,8 +892,8 @@ fn add16_SPi8(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!Instruction
         self.setFlag(.C, (result & 0xFF) <= (first_operand & 0xFF));
     } else {
         result = first_operand +% positive_offset;
-        self.setFlag(.H, first_operand & 0xF +% positive_offset > 0xF);
-        self.setFlag(.C, first_operand & 0xFF +% positive_offset > 0xFF);
+        self.setFlag(.H, ((first_operand & 0xF) +% (positive_offset & 0xF)) > 0xF);
+        self.setFlag(.C, ((first_operand & 0xFF) +% positive_offset) > 0xFF);
     }
 
     try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
@@ -835,16 +915,19 @@ fn sub(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult 
 fn sbc(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     //var result = undefined;
     const first_operand = try self.readOperand(u8, op_code_info.op_1 orelse return CpuErrors.MissingOperand);
-    const second_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand) + @boolToInt(self.getFlag(.C));
+    const second_operand = try self.readOperand(u8, op_code_info.op_2 orelse return CpuErrors.MissingOperand);
+    const first_operand_i32 = @intCast(i32, first_operand);
+    const second_operand_i32 = @intCast(i32, second_operand);
     
-    const result = first_operand -% second_operand;
-    //const overflow: bool = @subWithOverflow(u8, first_operand, second_operand, &result);
-    //_ = overflow;
-    self.setFlag(.Z, result == 0);
-    self.setFlag(.H, (first_operand & 0xF) < (second_operand & 0xF));
-    self.setFlag(.C, first_operand > second_operand);
+    const result_full: i32 = first_operand_i32 - second_operand_i32 - @boolToInt(self.getFlag(.C));
+    const half_full: i32 = (first_operand_i32 & 0xF) - (second_operand_i32 & 0xF) - @boolToInt(self.getFlag(.C));
+    const result = first_operand -% second_operand -% @boolToInt(self.getFlag(.C));
 
-    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, result);
+    self.setFlag(.Z, result == 0);
+    self.setFlag(.H, half_full < 0);
+    self.setFlag(.C, result_full < 0);
+
+    try self.writeOperand(op_code_info.op_1 orelse return CpuErrors.MissingOperand, @intCast(u8, result));
     return .{};
 }
 
@@ -857,6 +940,38 @@ fn ei(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
 fn di(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
     _ = op_code_info;
     self.memory_bank.interrupt.interrupt_master_enable = false;
+    return .{};
+}
+
+fn daa(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    _ = op_code_info;
+
+    const target_operand = try self.readOperand(u8, .A);
+    var result = target_operand;
+    if (self.getFlag(.N)) {
+        if (self.getFlag(.C)) { result -%= 0x60; self.setFlag(.C, true); }
+        if (self.getFlag(.H)) { result -%= 0x6; }
+    } else { 
+        if (self.getFlag(.C) or (target_operand > 0x99)) { result +%= 0x60; self.setFlag(.C, true); }
+        if (self.getFlag(.H) or ((target_operand & 0xF) > 0x9)) { result +%= 0x6; }
+    }
+    self.setFlag(.Z, result == 0);
+    try self.writeOperand(.A, result);
+    return .{};
+}
+
+fn cpl(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    _ = op_code_info;
+
+    const target_operand = try self.readOperand(u8, .A);
+    try self.writeOperand(.A, ~target_operand);
+    return .{};
+}
+
+fn scf(self: *Cpu, op_code_info: OpCode.OpCodeInfo) CpuErrors!InstructionResult {
+    _ = op_code_info;
+
+    self.setFlag(.C, true);
     return .{};
 }
 
@@ -886,7 +1001,6 @@ test "Cpu flags access" {
     try testing.expect(cpu.getFlag(.C));
     try testing.expect(cpu.getFlag(.Z));
     try testing.expect(!cpu.getFlag(.N));
-    try testing.expectEqual(@intCast(u8, 0b10010000), cpu.registers.AF.Lo);
 }
 
 test "Cpu ld8 access" {
@@ -1049,6 +1163,22 @@ test "Cpu add16_SPi8 flags" {
     _ = try cpu.processInstruction(op_code_info);
 
     try testing.expectEqual(@intCast(u16, 0xDFFB), cpu.registers.HL.ptr().*);
+
+    try testing.expect(cpu.getFlag(.H));
+    try testing.expect(cpu.getFlag(.C));
+}
+
+test "Cpu sbc flags" {
+    var memory_bank = MemoryBank {};
+    var cpu = Cpu.init(&memory_bank);
+    const op_code_info = OpCode.OpCodeInfo.init(.SBC, .A, .C, 1, 4, .{ .Z = .Dependent, .N = .Set, .H = .Dependent, .C = .Dependent });
+
+    cpu.registers.AF.Hi = 0x10;
+    cpu.registers.BC.Lo = 0x10;
+    cpu.setFlag(.C, true);
+    _ = try cpu.processInstruction(op_code_info);
+
+    try testing.expectEqual(@intCast(u8, 0) -% 1, cpu.registers.AF.Hi);
 
     try testing.expect(cpu.getFlag(.H));
     try testing.expect(cpu.getFlag(.C));
