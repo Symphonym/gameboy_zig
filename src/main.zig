@@ -13,7 +13,7 @@ pub fn main() !void {
     var gameboy = Gameboy.init();
     gameboy.initHardware();
     defer gameboy.deinit();
-    var cartridge = try Cartridge.loadFromFile("src/test_roms/blargg/instr_timing.gb");//"src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
+    var cartridge = try Cartridge.loadFromFile("src/test_roms/blargg/cpu_instrs/cpu_instrs.gb");//"src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
     // var cartridge = try Cartridge.loadFromFile("src/test_roms/tim00.gb");//"src/test_roms/mem_timing.gb"); //"roms/Tetris (JUE) (V1.1) [!].gb");
     defer cartridge.deinit();
 
