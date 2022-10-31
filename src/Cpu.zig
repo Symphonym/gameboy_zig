@@ -81,7 +81,6 @@ fn getFlag(self: *Cpu, flag: Flags) bool {
 }
 
 pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
-
     // if (self.buffer_writer == null) {
     //     self.buffer_writer = std.io.bufferedWriter(self.file_handle.writer());
     // }
@@ -130,7 +129,7 @@ pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
         });
     }
 
-    if (self.registers.PC == 0xC7F3) // ((op_code_info.op_1 orelse .A == .HL) or (op_code_info.op_2 orelse .A == .HL)))
+    // if (self.registers.PC == 0xC7F3) // ((op_code_info.op_1 orelse .A == .HL) or (op_code_info.op_2 orelse .A == .HL)))
     {
         // std.debug.print("Cpu tick failed at\n", .{});
         // std.debug.print("PC: 0x{X}\n", .{self.registers.PC});
