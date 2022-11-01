@@ -1,4 +1,4 @@
 zig-cache/
 *.gb
-roms/
+zig-out/bin/roms/games
 *execution_log.txt

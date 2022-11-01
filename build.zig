@@ -1,5 +1,8 @@
 const std = @import("std");
 
+const zgui = @import("libs/zgui/build.zig");
+const nfd = @import("libs/nfd-zig/build.zig");
+
 pub fn build(b: *std.build.Builder) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -12,14 +15,39 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("Gameboy", "src/main.zig");
-    exe.addIncludePath("lib/csfml/include");
-    exe.addLibraryPath("lib/csfml/lib/msvc/debug");
     exe.linkLibC();
-    exe.linkSystemLibrary("csfml-graphics-d");
-    exe.linkSystemLibrary("csfml-system-d");
-    exe.linkSystemLibrary("csfml-window-d");
-    exe.linkSystemLibrary("csfml-audio-d");
-    exe.linkSystemLibrary("csfml-network-d");
+    exe.linkLibCpp();
+
+    // SDL2
+    exe.addIncludePath("libs/sdl2/include");
+    exe.addLibraryPath("libs/sdl2/lib/x64");
+    exe.linkSystemLibrary("sdl2");
+
+    // Add zgui
+    exe.addPackage(zgui.pkg);
+    zgui.link(exe);
+
+    // Add NFD
+    exe.addPackage(nfd.getPackage("nfd"));
+    const nfd_lib = nfd.makeLib(b, mode, target);
+    exe.linkLibrary(nfd_lib);
+
+    // Link SDL backend for Imgui
+    exe.addIncludePath("libs/zgui/libs/imgui");
+    exe.addIncludePath("libs/imgui_sdl_backend");
+    exe.addCSourceFile("libs/imgui_sdl_backend/imgui_impl_sdlrenderer.cpp",  &[_][]const u8 {});
+    exe.addCSourceFile("libs/imgui_sdl_backend/imgui_impl_sdl.cpp",  &[_][]const u8 {});
+
+    // Link custom Zig bindings for SDL Imgui backend
+    exe.addCSourceFile("src/wrappers/imgui_sdl_binding/sdl_imgui_backend.cpp",  &[_][]const u8 {});
+
+    // exe.addIncludePath("libs/csfml/include");
+    // exe.addLibraryPath("libs/csfml/lib/msvc/debug");
+    // exe.linkSystemLibrary("csfml-graphics-d");
+    // exe.linkSystemLibrary("csfml-system-d");
+    // exe.linkSystemLibrary("csfml-window-d");
+    // exe.linkSystemLibrary("csfml-audio-d");
+    // exe.linkSystemLibrary("csfml-network-d");
 
     exe.setTarget(target);
     exe.setBuildMode(mode);
