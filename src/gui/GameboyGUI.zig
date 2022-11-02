@@ -60,7 +60,6 @@ pub fn tick(self: *Self) !void {
             }
         }
     }
-    
 
     zgui.setNextWindowSize(.{ .w = 160, .h = 144, .cond = zgui.Condition.once });
     _ = zgui.begin("Screen", .{ .flags = .{ .no_scrollbar = true }});
@@ -69,6 +68,7 @@ pub fn tick(self: *Self) !void {
     }
     zgui.end();
 
+    try self.imguiMemory();
     self.imguiCartridgeSelect();
 }
 
@@ -99,6 +99,43 @@ fn loadNewCartridge(self: *Self, new_cartridge: Cartridge) void {
         sdl.SDL_TEXTUREACCESS_STREAMING,
         @intCast(c_int, self.gameboy.?.getFramebuffer().getWidth()),
         @intCast(c_int, self.gameboy.?.getFramebuffer().getHeight())) orelse unreachable;
+}
+
+fn imguiMemory(self: *Self) !void {
+    
+    if (self.gameboy) |*gameboy| {
+
+        zgui.setNextWindowSize(.{ .w = 400, .h = 500 });
+        _= zgui.begin("Memory", .{ .flags = .{.no_resize = true} });
+        var i: u16 = 0xC000;
+        while (i <= 0xDFFF - 16) : (i += 16) {
+            zgui.textColored(.{ 0.0, 1.0, 0.0, 1.0 }, "{X:0>4}: ", .{i});
+            zgui.sameLine(.{});
+            zgui.text("{X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} ", .{
+                try gameboy.memory_bank.read(u8, i),
+                try gameboy.memory_bank.read(u8, i+1),
+                try gameboy.memory_bank.read(u8, i+2),
+                try gameboy.memory_bank.read(u8, i+3),
+                try gameboy.memory_bank.read(u8, i+4),
+                try gameboy.memory_bank.read(u8, i+5),
+                try gameboy.memory_bank.read(u8, i+6),
+                try gameboy.memory_bank.read(u8, i+7),
+            });
+
+            zgui.sameLine(.{});
+            zgui.text("{X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} ", .{
+                try gameboy.memory_bank.read(u8, i+8),
+                try gameboy.memory_bank.read(u8, i+9),
+                try gameboy.memory_bank.read(u8, i+10),
+                try gameboy.memory_bank.read(u8, i+11),
+                try gameboy.memory_bank.read(u8, i+12),
+                try gameboy.memory_bank.read(u8, i+13),
+                try gameboy.memory_bank.read(u8, i+14),
+                try gameboy.memory_bank.read(u8, i+15),
+            });
+        }
+        zgui.end();
+    }
 }
 
 fn imguiCartridgeSelect(self: *Self) void {
