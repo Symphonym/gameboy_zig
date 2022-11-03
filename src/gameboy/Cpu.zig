@@ -50,6 +50,7 @@ cpu_halted: bool = false,
 halt_bug_triggered: bool = false,
 
 IME_request: ?bool = null,
+
 // file_handle: std.fs.File,
 // buffer_writer: ?std.io.BufferedWriter(4096, std.fs.File.Writer) = null,
 
@@ -76,8 +77,20 @@ fn setFlag(self: *Cpu, flag: Flags, value: bool) void {
     }
 }
 
-fn getFlag(self: *Cpu, flag: Flags) bool {
+pub fn getFlag(self: *Cpu, flag: Flags) bool {
     return self.registers.AF.Lo & @enumToInt(flag) != 0;
+}
+
+pub fn getCurrentOpCode(self: *const Cpu) CpuErrors!OpCode.OpCodeInfo {
+    const op_code = try self.memory_bank.read(u8, self.registers.PC);
+    return blk: {
+        if (op_code == 0xCB) {
+            const cb_op_code = try self.memory_bank.read(u8, self.registers.PC + 1);
+            break :blk try OpCode.getCBOpCodeInfo(cb_op_code);
+        } else {
+            break :blk try OpCode.getOpCodeInfo(op_code);
+        }
+    };
 }
 
 pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
@@ -109,14 +122,7 @@ pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
     const op_code = try self.memory_bank.read(u8, self.registers.PC);
 
     // TODO: d8 and d16 values etc won't be read correctly for CB op codes due to the extra offset
-    const op_code_info = blk: {
-        if (op_code == 0xCB) {
-            const cb_op_code = try self.memory_bank.read(u8, self.registers.PC + 1);
-            break :blk try OpCode.getCBOpCodeInfo(cb_op_code);
-        } else {
-            break :blk try OpCode.getOpCodeInfo(op_code);
-        }
-    };
+    const op_code_info = try self.getCurrentOpCode();
 
     errdefer {
         std.debug.print("Cpu tick failed at\n", .{});

@@ -52,7 +52,7 @@ pub fn writeControl(self: *Timer, control_value: u8) void {
     // const old_enable = self.isTimerEnabled();
     // const old_speed = self.getTimerSpeed().getCyclesRequired();
     const old_multiplexer_bit = self.getObscureBit();
-    self.control = control_value & 0x3;
+    self.control = control_value & 0b111;
     const new_multiplexer_bit = self.getObscureBit();
     // const new_enable = self.isTimerEnabled();
     // const new_speed = self.getTimerSpeed().getCyclesRequired();

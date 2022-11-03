@@ -11,11 +11,19 @@ const Gameboy = @This();
 const GameboyErrors = Cpu.CpuErrors;
 const CYCLES_PER_FRAME = 4194304 / 60;
 
+pub const ExecutionModes = enum {
+    Free,
+    Paused,
+    Step
+};
+
 cpu: ?Cpu,
 ppu: ?Ppu,
 memory_bank: MemoryBank,
 
 cpu_cycles_this_frame: u32 = 0,
+
+execution_mode: ExecutionModes = .Paused,
 
 pub fn init() Gameboy {
 
@@ -50,6 +58,12 @@ pub fn insertCartridge(self: *Gameboy, cartridge: *Cartridge) void {
 pub fn tick(self: *Gameboy) GameboyErrors!void {
     var vram_changed = false;
     while (self.cpu_cycles_this_frame < CYCLES_PER_FRAME) {
+        if (self.execution_mode == .Paused) {
+            return;
+        } else if (self.execution_mode == .Step) {
+            self.execution_mode = .Paused;
+        }
+
         const cycles_taken = try self.cpu.?.tickInstructions();
         try self.ppu.?.tick(cycles_taken);
 

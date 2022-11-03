@@ -12,6 +12,8 @@ const GUIState = struct {
     memory_min_address: u16 = 0xC000,
     memory_max_address: u16 = 0xDFFF,
     hovered_address: ?u16 = null,
+
+    run_bootrom: bool = false,
 };
 
 gameboy: ?Gameboy = null,
@@ -78,6 +80,7 @@ pub fn tick(self: *Self) !void {
 
     try self.imguiMemory();
     self.imguiCartridgeSelect();
+    try self.imguiCPUView();
 }
 
 fn loadNewCartridge(self: *Self, new_cartridge: Cartridge) void {
@@ -100,6 +103,8 @@ fn loadNewCartridge(self: *Self, new_cartridge: Cartridge) void {
     self.gameboy.?.initHardware();
     self.cartridge = new_cartridge;
     self.gameboy.?.insertCartridge(&self.cartridge.?);
+
+    self.gameboy.?.cpu.?.registers.PC = if (self.gui_state.run_bootrom) 0x0 else 0x100;
 
     self.gameboy_screen = sdl.SDL_CreateTexture(
         self.renderer,
@@ -188,13 +193,101 @@ fn imguiMemory(self: *Self) !void {
                 self.gui_state.memory_min_address = std.math.clamp(self.gui_state.memory_max_address -| 1, 0x0000, 0xFFFF);
             }
         }
-
-        std.debug.print("{X} - {X}", .{self.gui_state.memory_min_address, self.gui_state.memory_max_address});
         zgui.popItemWidth();
+
         zgui.sameLine(.{});
-        zgui.text("Hovered Address: {X:0>4}", .{self.gui_state.hovered_address orelse 0});
+        zgui.textColored(.{0.0, 1.0, 0.0, 1.0}, "Hovered Address:", .{});
+        const hovered_address_data = try gameboy.memory_bank.read(u8, self.gui_state.hovered_address orelse 0);
+        zgui.sameLine(.{});
+        zgui.text("{X:0>4}", .{self.gui_state.hovered_address orelse 0 });
+        zgui.sameLine(.{ .spacing = 10 });
+        zgui.textColored(.{0.0, 1.0, 0.0, 1.0}, "({X:0>4} {b:0>8})", .{hovered_address_data, hovered_address_data});
+
+        zgui.textColored(.{0.0, 1.0, 0.0, 1.0}, "Timer", .{});
+        zgui.text("DIV({X:0>2}) TIMA({X:0>2}) TMA({X:0>2})", .{
+            gameboy.memory_bank.timer.readDivider(),
+            gameboy.memory_bank.timer.counter,
+            gameboy.memory_bank.timer.modulo});
+        zgui.sameLine(.{ .spacing = 10 });
+        zgui.text("Enabled: {}", .{gameboy.memory_bank.timer.isTimerEnabled()});
+        zgui.sameLine(.{ .spacing = 10 });
+        zgui.text("Speed: {s}", .{@tagName(gameboy.memory_bank.timer.getTimerSpeed())});
+
+        zgui.textColored(.{0.0, 1.0, 0.0, 1.0}, "Interrupts", .{});
+        zgui.text("{b:0>8} IF (Requests)", .{gameboy.memory_bank.interrupt.request_register});
+        zgui.sameLine(.{ .spacing = 10 });
+        zgui.text("IME: {}", .{gameboy.memory_bank.interrupt.interrupt_master_enable});
+        zgui.text("{b:0>8} IF (Enabled)", .{gameboy.memory_bank.interrupt.enabled_register});
+
         zgui.end();
     }
+}
+
+fn imguiCPUView(self: *Self) !void {
+    
+    if (self.gameboy) |*gameboy| {
+        if (zgui.begin("CPU", .{ .flags = .{.no_resize = true, .always_auto_resize = true} })) {
+            zgui.text("Execution Mode: ", .{});
+            zgui.sameLine(.{});
+
+            const execution_mode_color: [4]f32 = switch(gameboy.execution_mode) {
+                .Free => .{ 1.0, 1.0, 1.0, 1.0},
+                else => .{ 1.0, 0.0, 0.0, 1.0 },
+            };
+
+            zgui.textColored(execution_mode_color, "{s}", .{@tagName(gameboy.execution_mode)});
+
+            zgui.text("AF: {X:0>4} Flags: {b:0>8} Z({}) N({}) H({}) C({})", .{
+                gameboy.cpu.?.registers.AF.ptr().*,
+                gameboy.cpu.?.registers.AF.Lo,
+                @boolToInt(gameboy.cpu.?.getFlag(.Z)),
+                @boolToInt(gameboy.cpu.?.getFlag(.N)),
+                @boolToInt(gameboy.cpu.?.getFlag(.H)),
+                @boolToInt(gameboy.cpu.?.getFlag(.C))});
+
+            zgui.text("BC: {X:0>4}", .{ gameboy.cpu.?.registers.BC.ptr().* });
+            zgui.sameLine(.{ .spacing = 10});
+            zgui.text("DE: {X:0>4}", .{ gameboy.cpu.?.registers.DE.ptr().* });
+            zgui.sameLine(.{ .spacing = 10});
+            zgui.text("HL: {X:0>4}", .{ gameboy.cpu.?.registers.HL.ptr().* });
+        
+            zgui.text("SP: {X:0>4}", .{ gameboy.cpu.?.registers.SP });
+            zgui.sameLine(.{ .spacing = 10});
+            zgui.text("PC: {X:0>4}", .{ gameboy.cpu.?.registers.PC });
+
+            const op_code = try gameboy.cpu.?.getCurrentOpCode();
+            zgui.text("Op Code:", .{});
+            zgui.sameLine(.{});
+            zgui.textColored(.{0.0, 1.0, 0.0, 1.0 }, "{s} {s},{s}", .{
+                @tagName(op_code.inst),
+                if (op_code.op_1) |val| @tagName(val) else "null",
+                if (op_code.op_2) |val| @tagName(val) else "null"});
+
+            if (zgui.button(if (gameboy.execution_mode == .Paused) ">" else "=", .{})) {
+                gameboy.execution_mode = if (gameboy.execution_mode == .Free) .Paused else .Free;
+            }
+
+            zgui.sameLine(.{});
+            if (zgui.button("Step", .{})) {
+                gameboy.execution_mode = .Step;
+            }
+
+            // if (zgui.beginChild("Breakpoint View", .{})) {
+                
+            //     if (zgui.beginListBox("Breakpoints", .{})) {
+                    
+            //         zgui.endListBox();
+            //     }
+            //     zgui.endChild();
+            // }
+
+
+            zgui.end();    
+        }
+        
+    }
+
+
 }
 
 fn imguiCartridgeSelect(self: *Self) void {
@@ -214,6 +307,8 @@ fn imguiCartridgeSelect(self: *Self) void {
             } else |_| {}
         }
     }
+    zgui.sameLine(.{});
+    _ = zgui.checkbox("Run Bootrom ", .{ .v = &self.gui_state.run_bootrom});
 
     if (self.cartridge) |cartridge| {
 
