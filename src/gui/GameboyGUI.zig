@@ -179,7 +179,7 @@ fn imguiMemory(self: *Self) !void {
                 0x0000,
                 0xFFFF);
             if (self.gui_state.memory_min_address >= self.gui_state.memory_max_address) {
-                self.gui_state.memory_max_address = std.math.clamp(self.gui_state.memory_min_address +| 1, 0x0000, 0xFFFF);
+                self.gui_state.memory_max_address = std.math.clamp(self.gui_state.memory_min_address +| 16, 0x0000, 0xFFFF);
             }
         }
 
@@ -190,7 +190,7 @@ fn imguiMemory(self: *Self) !void {
                 0x0000,
                 0xFFFF);
             if (self.gui_state.memory_max_address <= self.gui_state.memory_min_address) {
-                self.gui_state.memory_min_address = std.math.clamp(self.gui_state.memory_max_address -| 1, 0x0000, 0xFFFF);
+                self.gui_state.memory_min_address = std.math.clamp(self.gui_state.memory_max_address -| 16, 0x0000, 0xFFFF);
             }
         }
         zgui.popItemWidth();
@@ -255,14 +255,6 @@ fn imguiCPUView(self: *Self) !void {
             zgui.sameLine(.{ .spacing = 10});
             zgui.text("PC: {X:0>4}", .{ gameboy.cpu.?.registers.PC });
 
-            const op_code = try gameboy.cpu.?.getCurrentOpCode();
-            zgui.text("Op Code:", .{});
-            zgui.sameLine(.{});
-            zgui.textColored(.{0.0, 1.0, 0.0, 1.0 }, "{s} {s},{s}", .{
-                @tagName(op_code.inst),
-                if (op_code.op_1) |val| @tagName(val) else "null",
-                if (op_code.op_2) |val| @tagName(val) else "null"});
-
             if (zgui.button(if (gameboy.execution_mode == .Paused) ">" else "=", .{})) {
                 gameboy.execution_mode = if (gameboy.execution_mode == .Free) .Paused else .Free;
             }
@@ -271,6 +263,35 @@ fn imguiCPUView(self: *Self) !void {
             if (zgui.button("Step", .{})) {
                 gameboy.execution_mode = .Step;
             }
+
+            const op_codes = try gameboy.cpu.?.getNextXOpCodes(10);
+            zgui.text("Instruction: ", .{});
+            zgui.sameLine(.{});
+            zgui.textColored(.{0.0, 1.0, 0.0, 1.0 }, "{s} {s},{s}", .{
+                @tagName(op_codes[0].?.inst),
+                if (op_codes[0].?.op_1) |val| @tagName(val) else "null",
+                if (op_codes[0].?.op_2) |val| @tagName(val) else "null"});
+
+
+            //if (zgui.beginChild("Next Instructions", .{})) {
+                
+                if (zgui.beginListBox("##next_instructions", .{})) {
+                    for (op_codes) |val, i| {
+                        if (i == 0) {
+                            continue;
+                        }
+                        const op_code = val orelse break;
+
+                        zgui.textColored(.{0.0, 1.0, 0.0, 1.0 }, "#{} {s} {s},{s}", .{
+                            i,
+                            @tagName(op_code.inst),
+                            if (op_code.op_1) |op| @tagName(op) else "null",
+                            if (op_code.op_2) |op| @tagName(op) else "null"});
+                    }
+                    zgui.endListBox();
+                }
+                //zgui.endChild();
+            //}
 
             // if (zgui.beginChild("Breakpoint View", .{})) {
                 

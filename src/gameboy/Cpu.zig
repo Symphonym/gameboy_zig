@@ -81,8 +81,8 @@ pub fn getFlag(self: *Cpu, flag: Flags) bool {
     return self.registers.AF.Lo & @enumToInt(flag) != 0;
 }
 
-pub fn getCurrentOpCode(self: *const Cpu) CpuErrors!OpCode.OpCodeInfo {
-    const op_code = try self.memory_bank.read(u8, self.registers.PC);
+fn getOpCodeAtAddress(self: *const Cpu, address: u16) CpuErrors!OpCode.OpCodeInfo {
+    const op_code = try self.memory_bank.read(u8, address);
     return blk: {
         if (op_code == 0xCB) {
             const cb_op_code = try self.memory_bank.read(u8, self.registers.PC + 1);
@@ -91,6 +91,24 @@ pub fn getCurrentOpCode(self: *const Cpu) CpuErrors!OpCode.OpCodeInfo {
             break :blk try OpCode.getOpCodeInfo(op_code);
         }
     };
+}
+pub fn getCurrentOpCode(self: *const Cpu) CpuErrors!OpCode.OpCodeInfo {
+    return self.getOpCodeAtAddress(self.registers.PC);
+}
+
+pub fn getNextXOpCodes(self: *const Cpu, comptime op_code_count: u32) CpuErrors![op_code_count]?OpCode.OpCodeInfo {
+    var op_codes: [op_code_count]?OpCode.OpCodeInfo = .{null} ** op_code_count;
+
+    var local_pc: u16 = self.registers.PC;
+
+    var i: u32 = 0;
+    while (i < op_code_count) : (i += 1) {
+        const op_code = self.getOpCodeAtAddress(local_pc) catch break;
+        op_codes[i] = op_code;
+        local_pc += op_code.length;
+    }
+
+    return op_codes;
 }
 
 pub fn tickInstructions(self: *Cpu) CpuErrors!u32 {
