@@ -8,11 +8,19 @@ const Cartridge = @import("../gameboy/Cartridge.zig");
 
 const Self = @This();
 
+const GUIState = struct {
+    memory_min_address: u16 = 0xC000,
+    memory_max_address: u16 = 0xDFFF,
+    hovered_address: ?u16 = null,
+};
+
 gameboy: ?Gameboy = null,
 cartridge: ?Cartridge = null,
 
 renderer: *sdl.SDL_Renderer,
 gameboy_screen: ?*sdl.SDL_Texture = null,
+
+gui_state: GUIState = .{},
 
 
 pub fn init(renderer: *sdl.SDL_Renderer) Self {
@@ -104,36 +112,87 @@ fn loadNewCartridge(self: *Self, new_cartridge: Cartridge) void {
 fn imguiMemory(self: *Self) !void {
     
     if (self.gameboy) |*gameboy| {
+        
+        zgui.setNextWindowSize(.{ .w = 600, .h = 600 });
+        _= zgui.begin("Memory", .{ .flags = .{ .no_resize = true } });
+        
+        if (zgui.beginChild("##memory_view", .{ .h = 420 })) {
+            var i: u16 = self.gui_state.memory_min_address;
+            while (i <= self.gui_state.memory_max_address -| 16) : (i +|= 16) {
+                zgui.textColored(.{ 0.0, 1.0, 0.0, 1.0 }, "{X:0>4}: ", .{i});
 
-        zgui.setNextWindowSize(.{ .w = 400, .h = 500 });
-        _= zgui.begin("Memory", .{ .flags = .{.no_resize = true} });
-        var i: u16 = 0xC000;
-        while (i <= 0xDFFF - 16) : (i += 16) {
-            zgui.textColored(.{ 0.0, 1.0, 0.0, 1.0 }, "{X:0>4}: ", .{i});
-            zgui.sameLine(.{});
-            zgui.text("{X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} ", .{
-                try gameboy.memory_bank.read(u8, i),
-                try gameboy.memory_bank.read(u8, i+1),
-                try gameboy.memory_bank.read(u8, i+2),
-                try gameboy.memory_bank.read(u8, i+3),
-                try gameboy.memory_bank.read(u8, i+4),
-                try gameboy.memory_bank.read(u8, i+5),
-                try gameboy.memory_bank.read(u8, i+6),
-                try gameboy.memory_bank.read(u8, i+7),
-            });
+                var byte_index: u8 = 0;
+                while (byte_index < 16 and i + byte_index < 0xFFFF) : (byte_index += 1) {
+                    zgui.sameLine(.{});
+                    if (byte_index % 8 == 0) {
+                        zgui.text("  ", .{});
+                        zgui.sameLine(.{});
+                    } 
 
-            zgui.sameLine(.{});
-            zgui.text("{X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} {X:0>2} ", .{
-                try gameboy.memory_bank.read(u8, i+8),
-                try gameboy.memory_bank.read(u8, i+9),
-                try gameboy.memory_bank.read(u8, i+10),
-                try gameboy.memory_bank.read(u8, i+11),
-                try gameboy.memory_bank.read(u8, i+12),
-                try gameboy.memory_bank.read(u8, i+13),
-                try gameboy.memory_bank.read(u8, i+14),
-                try gameboy.memory_bank.read(u8, i+15),
-            });
+                    const byte = try gameboy.memory_bank.read(u8, i + byte_index);
+                    var color: [4]f32 = if (byte == 0) .{0.5, 0.5, 0.5, 1.0 } else .{ 1.0, 1.0, 1.0, 1.0 };
+                    if (self.gui_state.hovered_address == i + byte_index) {
+                        color = .{ 1.0, 0.0, 0.0, 1.0 };
+                    }
+
+                    zgui.textColored(color, "{X:0>2}", .{byte});
+                    if (zgui.isItemHovered(.{})) {
+                        self.gui_state.hovered_address = i + byte_index;
+                    }
+                }
+
+                byte_index = 0;
+                while (byte_index < 16 and i + byte_index < 0xFFFF) : (byte_index += 1) {
+                    zgui.sameLine(.{ .spacing = if (byte_index == 0) -1 else 0});
+        
+                    const byte = try gameboy.memory_bank.read(u8, i + byte_index);
+                    const ascii_character = if (std.ascii.isASCII(byte) and !std.ascii.isControl(byte)) byte else 0x2E;
+                    var color: [4]f32 = if (ascii_character != 0x2E) .{ 1.0, 1.0, 1.0, 1.0 } else .{0.5, 0.5, 0.5, 1.0 };
+                    if (self.gui_state.hovered_address == i + byte_index) {
+                        color = .{ 1.0, 0.0, 0.0, 1.0 };
+                    }
+
+                    zgui.textColored(color, "{c}", .{ascii_character});
+                    if (zgui.isItemHovered(.{})) {
+                        self.gui_state.hovered_address = i + byte_index;
+                    }
+                }
+            }
+            zgui.endChild();
         }
+        
+        var start_address_str: [5:0]u8 = undefined;
+        var end_address_str: [5:0]u8 = undefined;
+        _ = std.fmt.bufPrint(start_address_str[0..4], "{X:0>4}", .{self.gui_state.memory_min_address}) catch start_address_str[0..4];
+        _ = std.fmt.bufPrint(end_address_str[0..4], "{X:0>4}", .{self.gui_state.memory_max_address}) catch end_address_str[0..4];
+
+        zgui.separator();
+        zgui.pushItemWidth(50);
+        if (zgui.inputText("##from_addr", .{ .buf = &start_address_str, .flags = .{ .chars_hexadecimal = true, .enter_returns_true = true}})) {
+            self.gui_state.memory_min_address = std.math.clamp(
+                std.fmt.parseUnsigned(u16, std.mem.sliceTo(&start_address_str, 0), 16) catch self.gui_state.memory_min_address,
+                0x0000,
+                0xFFFF);
+            if (self.gui_state.memory_min_address >= self.gui_state.memory_max_address) {
+                self.gui_state.memory_max_address = std.math.clamp(self.gui_state.memory_min_address +| 1, 0x0000, 0xFFFF);
+            }
+        }
+
+        zgui.sameLine(.{});
+        if (zgui.inputText("##to_addr", .{ .buf = &end_address_str, .flags = .{ .chars_hexadecimal = true, .enter_returns_true = true }})) {
+            self.gui_state.memory_max_address = std.math.clamp(
+                std.fmt.parseUnsigned(u16, std.mem.sliceTo(&end_address_str, 0), 16) catch self.gui_state.memory_max_address,
+                0x0000,
+                0xFFFF);
+            if (self.gui_state.memory_max_address <= self.gui_state.memory_min_address) {
+                self.gui_state.memory_min_address = std.math.clamp(self.gui_state.memory_max_address -| 1, 0x0000, 0xFFFF);
+            }
+        }
+
+        std.debug.print("{X} - {X}", .{self.gui_state.memory_min_address, self.gui_state.memory_max_address});
+        zgui.popItemWidth();
+        zgui.sameLine(.{});
+        zgui.text("Hovered Address: {X:0>4}", .{self.gui_state.hovered_address orelse 0});
         zgui.end();
     }
 }
@@ -170,3 +229,4 @@ fn imguiCartridgeSelect(self: *Self) void {
 
     zgui.end();
 }
+
