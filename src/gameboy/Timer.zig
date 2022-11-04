@@ -14,6 +14,8 @@ control: u8 = 0, // TAC
 cycles_processed: u32 = 0,
 divider_cycles_processed: u32 = 0,
 previous_obscure_bit: bool = false,
+
+cycles_since_interrupt_request: u8 = 0,
 request_interrupt: bool = false,
 
 pub const TimerSpeed = enum(u8) {
@@ -34,17 +36,27 @@ pub const TimerSpeed = enum(u8) {
 
 pub fn tick(self: *Timer, cycles_taken: u32, interrupt: *Interrupt) void {
     
-    if (self.request_interrupt) {
-        self.counter = self.modulo;
-        interrupt.requestInterrupt(.Timer);
-    }
+    var i: u32 = 0;
+    // Timer needs to process each and every cycle for best accuracy
+    while (i < cycles_taken) : (i += 1) {
 
-    self.tickDivider(cycles_taken);
+        if (self.request_interrupt) {
+            self.cycles_since_interrupt_request += 1;
 
-    const falling_edge: bool = self.previous_obscure_bit and !self.getObscureBit();
-    self.previous_obscure_bit = self.getObscureBit();
-    if (falling_edge) {
-        self.incrementTimer();
+            if (self.cycles_since_interrupt_request == 4) {
+                self.counter = self.modulo;
+                interrupt.requestInterrupt(.Timer);
+                self.request_interrupt = false;
+            }
+        }
+
+        self.tickDivider(1);
+
+        const falling_edge: bool = self.previous_obscure_bit and !self.getObscureBit();
+        self.previous_obscure_bit = self.getObscureBit();
+        if (falling_edge) {
+            self.incrementTimer();
+        }
     }
 }
 
@@ -70,7 +82,6 @@ pub fn writeControl(self: *Timer, control_value: u8) void {
     // };
 
     if (old_multiplexer_bit and !new_multiplexer_bit) {
-        std.debug.print("AYO, \n", .{});
         self.incrementTimer();
     }
 }
@@ -97,6 +108,7 @@ fn incrementTimer(self: *Timer) void {
     var result: u8 = 0;
     if (@addWithOverflow(u8, self.counter, 1, &result)) {
         self.request_interrupt = true;
+        self.cycles_since_interrupt_request = 0;
         self.counter = 0;
     } else {
         self.counter = result;

@@ -44,9 +44,6 @@ pub fn deinit(self: *Self) void {
 }
 
 pub fn tick(self: *Self) !void {
-    var open = false;
-    zgui.showDemoWindow(&open);
-
     if (self.gameboy) |*gameboy| {
         try gameboy.tick();
 
@@ -217,7 +214,7 @@ fn imguiMemory(self: *Self) !void {
         zgui.text("{b:0>8} IF (Requests)", .{gameboy.memory_bank.interrupt.request_register});
         zgui.sameLine(.{ .spacing = 10 });
         zgui.text("IME: {}", .{gameboy.memory_bank.interrupt.interrupt_master_enable});
-        zgui.text("{b:0>8} IF (Enabled)", .{gameboy.memory_bank.interrupt.enabled_register});
+        zgui.text("{b:0>8} IE (Enabled)", .{gameboy.memory_bank.interrupt.enabled_register});
 
         zgui.end();
     }

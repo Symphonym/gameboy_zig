@@ -101,7 +101,6 @@ pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!
             }
         },
         0x100...0x7FFF => if (self.cartridge) | *cartridge| cartridge.*.readROM(T, address) else MemoryBankErrors.InvalidAddress,
-        0xC000...0xDFFF => std.mem.bytesToValue(T, self.work_ram[(address - 0xC000)..][0..@sizeOf(T)]),
         0x8000...0x9FFF => blk: {
             if (self.isVRAMAccessAllowed()) {
                 break :blk std.mem.bytesToValue(T, self.video_ram[(address - 0x8000)..][0..@sizeOf(T)]);
@@ -110,15 +109,13 @@ pub fn read(self: *MemoryBank, comptime T: type, address: u16) MemoryBankErrors!
             }
         },
         0xA000...0xBFFF => if (self.cartridge) | *cartridge| cartridge.*.readRAM(T, address - 0xA000) else MemoryBankErrors.InvalidAddress,
+        0xC000...0xDFFF => std.mem.bytesToValue(T, self.work_ram[(address - 0xC000)..][0..@sizeOf(T)]),
+        0xE000...0xFDFF => std.mem.bytesToValue(T, self.work_ram[0xC000 + (address - 0xE000)..][0..@sizeOf(T)]),
         0xFE00...0xFE9F => try self.readOAM(T, address),
         0xFEA0...0xFEFF => 0xFF, // Unusable memory
         0xFF00...0xFF7F => try self.readIO(T, address),
         0xFF80...0xFFFE => std.mem.bytesToValue(T, self.high_ram[(address - 0xFF80)..][0..@sizeOf(T)]),
         0xFFFF => @intCast(T, self.interrupt.enabled_register),
-        else => blk: {
-            std.debug.print("Invalid address read at 0x{X}\n", .{address});
-            break :blk MemoryBankErrors.InvalidAddress;
-        }
     };
 }
 
@@ -169,7 +166,6 @@ pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!v
     {
         0x0...0x7FFF => if (self.cartridge) | *cartridge| cartridge.*.writeROM(address, value) else return MemoryBankErrors.InvalidAddress,
         //0x104...0x133 => return MemoryBankErrors.NotWriteableMemory,
-        0xC000...0xDFFF => std.mem.copy(u8, self.work_ram[(address - 0xC000)..][0..bytes_to_write], &std.mem.toBytes(value)),
         0x8000...0x9FFF => {
             if (self.isVRAMAccessAllowed()) {
                 self.vram_changed = true;
@@ -177,15 +173,13 @@ pub fn write(self: *MemoryBank, address: u16, value: anytype) MemoryBankErrors!v
             }
         },
         0xA000...0xBFFF => if (self.cartridge) | *cartridge| cartridge.*.writeRAM(address - 0xA000, value) else return MemoryBankErrors.InvalidAddress,
+        0xC000...0xDFFF => std.mem.copy(u8, self.work_ram[(address - 0xC000)..][0..bytes_to_write], &std.mem.toBytes(value)),
+        0xE000...0xFDFF => {},
         0xFE00...0xFE9f => try self.writeOAM(address, value),
         0xFEA0...0xFEFF => {}, // Unusable memory
         0xFF00...0xFF7F => try self.writeIO(address, value),
         0xFF80...0xFFFE => std.mem.copy(u8, self.high_ram[(address - 0xFF80)..][0..bytes_to_write], &std.mem.toBytes(value)),
         0xFFFF => self.interrupt.enabled_register = @intCast(u8, value),
-        else => {
-            std.debug.print("Invalid address write at 0x{X}\n", .{address});
-            return MemoryBankErrors.InvalidAddress;
-        }
     }
 }
 
